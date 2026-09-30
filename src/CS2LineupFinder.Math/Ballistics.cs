@@ -73,7 +73,11 @@ public static class Ballistics
         }
 
         // tan(theta) = (v^2 +/- sqrt(v^4 - g * (g*R^2 + 2*dz*v^2))) / (g*R)
-        var discriminant = Pow(speed, 4) - (gravity * ((gravity * range * range) + (2d * deltaZ * speed * speed)));
+        // Written as multiplications rather than Pow(v, 4) so a target exactly on the
+        // envelope evaluates to a discriminant of zero rather than a rounding artefact.
+        var speedSquared = speed * speed;
+        var discriminant = (speedSquared * speedSquared)
+            - (gravity * ((gravity * range * range) + (2d * deltaZ * speedSquared)));
         if (discriminant < 0d)
         {
             return 0;
@@ -81,8 +85,8 @@ public static class Ballistics
 
         var root = Sqrt(discriminant);
         var denominator = gravity * range;
-        var low = Atan((speed * speed - root) / denominator) * AngleMath.Rad2Deg;
-        var high = Atan((speed * speed + root) / denominator) * AngleMath.Rad2Deg;
+        var low = Atan((speedSquared - root) / denominator) * AngleMath.Rad2Deg;
+        var high = Atan((speedSquared + root) / denominator) * AngleMath.Rad2Deg;
 
         if (root <= 1e-9)
         {
