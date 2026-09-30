@@ -31,4 +31,10 @@
     <None Include="data\**\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The plugin's configuration property is internal so the engine type stays out
+         of the public surface; the test project is the only friend. -->
+    <InternalsVisibleTo Include="CS2LineupFinder.Plugin.Tests" />
+  </ItemGroup>
+
 </Project>
