@@ -83,7 +83,7 @@ public sealed partial class CommandService
 
             var session = _sessions.GetOrCreate(playerSlot);
             session.ThrowPoint = record.Origin.ToVec3();
-            session.EyePoint = record.Origin.ToVec3() + new Vec3(0f, 0f, LineupRecord.DefaultEyeHeight);
+            session.EyePoint = record.Origin.ToVec3() + new Vec3(0f, 0f, record.EyeHeight);
             session.Zone = record.Zone.ToGroundZone();
             session.GrenadeType = record.GrenadeType;
             session.ThrowMode = record.ThrowMode;
@@ -102,7 +102,7 @@ public sealed partial class CommandService
                     {
                         Yaw = record.Yaw,
                         Pitch = record.Pitch,
-                        ReleasePosition = new Vec3(record.Origin.X, record.Origin.Y, record.Origin.Z + LineupRecord.DefaultEyeHeight),
+                        ReleasePosition = new Vec3(record.Origin.X, record.Origin.Y, record.Origin.Z + record.EyeHeight),
                         ImpactPosition = zone.Center,
                         TargetDistance = 0f,
                         Note = "saved " + record.CreatedAt.UtcDateTime.ToString("u", System.Globalization.CultureInfo.InvariantCulture),

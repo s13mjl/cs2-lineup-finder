@@ -17,6 +17,35 @@ namespace CS2LineupFinder.Plugin.Tests;
 public sealed class CommandPersistenceTests
 {
     [Fact]
+    public async Task SaveThenLoad_Crouched_KeepsTheLowerEyeLine()
+    {
+        // The schema stores the feet, not the eyes, so the eye line has to be
+        // reconstructed from the stance. Rebuilding a crouched line-up at the
+        // standing height moves the beam origin 18 units up and the suggested arc
+        // off the hands that actually threw it.
+        using var harness = new Harness();
+        harness.PrepareSession(eyeZ: 46f);
+        harness.Sessions.GetOrCreate(Harness.Slot).ThrowMode = ThrowMode.Crouch;
+        Assert.NotNull(await harness.Service.FindAsync(Harness.Slot, harness.World));
+
+        Assert.NotNull(harness.Service.SaveLineup(Harness.Slot, "crouched"));
+        harness.Service.Clear(Harness.Slot);
+
+        var loaded = harness.Service.LoadLineup(Harness.Slot, "crouched", "de_mirage");
+
+        Assert.NotNull(loaded);
+        Assert.Equal(ThrowMode.Crouch, loaded!.ThrowMode);
+        var session = harness.Sessions.GetOrCreate(Harness.Slot);
+        Assert.Equal(LineupRecord.CrouchedEyeHeight, session.EyePoint!.Value.Z - session.ThrowPoint!.Value.Z);
+
+        // The stance also survives the round trip, so the next search uses it too.
+        var request = harness.Service.BuildRequest(Harness.Slot, explain: false);
+        Assert.NotNull(request);
+        Assert.Equal(ThrowMode.Crouch, request!.ThrowMode);
+        Assert.Equal(LineupRecord.CrouchedEyeHeight, request.Origin.Eyes.Z - request.Origin.Feet.Z);
+    }
+
+    [Fact]
     public async Task SaveThenLoad_RestoresTheWholeSessionAndTheAngles()
     {
         using var harness = new Harness();

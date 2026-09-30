@@ -111,7 +111,7 @@ public sealed class LineupRecord
         // the schema, or one a player hand edited down to nothing, is caught by the
         // caller, which reads us as best effort and keeps whatever the file does have.
         var feet = Origin.ToVec3();
-        var origin = new ThrowOrigin { Feet = feet, Eyes = feet + new Vec3(0f, 0f, DefaultEyeHeight) };
+        var origin = new ThrowOrigin { Feet = feet, Eyes = feet + new Vec3(0f, 0f, EyeHeight) };
         var zone = Zone.ToGroundZone();
         return new LineupRequest
         {
@@ -124,8 +124,19 @@ public sealed class LineupRecord
         };
     }
 
-    /// <summary>Eye height assumed when a stored record has to be turned back into a request.</summary>
+    /// <summary>Eye height of a standing or jumping thrower, in units.</summary>
     public const float DefaultEyeHeight = 64f;
+
+    /// <summary>Eye height of a crouched thrower, in units.</summary>
+    public const float CrouchedEyeHeight = 46f;
+
+    /// <summary>
+    /// Eye height this line-up was thrown from, taken from the stance rather than
+    /// assumed. The file schema stores the feet, so a crouched line-up whose eyes
+    /// were put back at the standing height would have its beam drawn 18 units above
+    /// the hands that actually threw it.
+    /// </summary>
+    public float EyeHeight => ThrowMode == ThrowMode.Crouch ? CrouchedEyeHeight : DefaultEyeHeight;
 }
 
 /// <summary>Plain x/y/z triple so the JSON stays readable.</summary>
