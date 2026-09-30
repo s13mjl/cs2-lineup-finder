@@ -42,6 +42,20 @@ public sealed class LineupRepository
         _rootDirectory = dataDirectory;
     }
 
+    /// <summary>
+    /// Creates the repository a plugin root directory should use, i.e. the one
+    /// rooted at <see cref="LineupsRelativePath"/>.
+    /// </summary>
+    /// <param name="pluginRootDirectory">Directory holding <c>config/</c> and <c>data/</c>.</param>
+    /// <returns>A repository over <c>&lt;pluginRootDirectory&gt;/data/lineups</c>.</returns>
+    /// <remarks>
+    /// Built from the constant rather than a literal so the path documented in
+    /// <c>data/README.md</c>, the one <c>data/.gitignore</c> excludes and the one
+    /// saved files actually land in cannot drift apart.
+    /// </remarks>
+    public static LineupRepository ForPluginRoot(string pluginRootDirectory) => new(
+        Path.Combine(pluginRootDirectory, LineupsRelativePath.Replace('/', Path.DirectorySeparatorChar)));
+
     /// <summary>Root directory the repository reads and writes.</summary>
     public string RootDirectory => _rootDirectory;
 

@@ -779,7 +779,7 @@ public sealed class LineupFinderPlugin : BasePlugin
             Beams = new BeamRenderer(Dispatcher, () => plugin.Config, Report);
             Visuals = new EngineVisuals(Dispatcher, Beams, () => plugin.Config);
             Sessions = new SessionStore();
-            Lineups = new LineupRepository(Path.Combine(root, DataDirectory));
+            Lineups = LineupRepository.ForPluginRoot(root);
             Simulator = new SimulatorBridge(() => TimeSpan.FromSeconds(plugin.Config.SolveTimeoutSeconds));
             Cancellations = new CancellationRegistry();
             Movement = new GameMovementProvider(Tracer, () => plugin.Config);
