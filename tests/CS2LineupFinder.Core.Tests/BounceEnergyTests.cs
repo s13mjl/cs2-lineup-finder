@@ -187,9 +187,6 @@ public class BounceEnergyTests
         GrenadeSimulator simulator = new(parameters);
         parameters.FuseSeconds.Value = 20f;
 
-        const float floorHeight = 0f;
-        MockWorldGeometry emptyWorld = MockWorldGeometry.Empty();
-
         // 100 u/s versus 675 u/s, both travelling roughly the same distance.
         ThrowParams slow = new(new Vec3(0f, 0f, 300f), new Vec3(100f, 0f, 0f), GrenadeType.He, 1f, 64);
         MockWorldGeometry slowWorld = MockWorldGeometry.Empty();
@@ -198,9 +195,6 @@ public class BounceEnergyTests
         ThrowParams fast = new(new Vec3(0f, 0f, 300f), new Vec3(675f, 0f, 0f), GrenadeType.He, 1f, 64);
         MockWorldGeometry fastWorld = MockWorldGeometry.Empty();
         simulator.Simulate(fast, fastWorld);
-
-        _ = emptyWorld;
-        _ = floorHeight;
 
         Assert.True(slowWorld.TraceCount < fastWorld.TraceCount,
             $"Slow flight used {slowWorld.TraceCount} sweeps, fast used {fastWorld.TraceCount}.");

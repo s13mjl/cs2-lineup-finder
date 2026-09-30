@@ -165,7 +165,7 @@ public class AnalyticTrajectoryTests
         // Range is the FIRST ground contact, not the final rest point. After
         // landing the grenade still bounces and rolls forward, so the rest
         // position overshoots the ballistic range by a wide margin.
-        float measured = FirstLandingX(result, floorHeight);
+        float measured = FirstLandingX(result);
         float expected = Analytic.FlatRange(speed, elevation, parameters.GrenadeGravity.Value, eyeHeight);
 
         float errorPercent = MathF.Abs(measured - expected) / expected * 100f;
@@ -190,10 +190,8 @@ public class AnalyticTrajectoryTests
     /// it sits just ABOVE the floor and the next landing is picked up instead.
     /// The first recorded sample carrying a bounce index is the true first impact.
     /// </remarks>
-    private static float FirstLandingX(TrajectoryResult result, float floorHeight)
+    private static float FirstLandingX(TrajectoryResult result)
     {
-        _ = floorHeight;
-
         foreach (TrajectoryPoint point in result.Points)
         {
             if (point.BounceCount >= 1)

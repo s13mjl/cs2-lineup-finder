@@ -1,4 +1,4 @@
-﻿// <copyright file="MockWorldGeometry.cs" company="CS2LineupFinder">
+// <copyright file="MockWorldGeometry.cs" company="CS2LineupFinder">
 // Test double for IWorldGeometry. Deliberately map-free: every world is built
 // from analytic primitives so the suite runs with no .bsp and no game install.
 // </copyright>
@@ -98,12 +98,7 @@ public sealed class MockWorldGeometry : IWorldGeometry
 
     /// <inheritdoc />
     public TraceHit ProbeGround(Vec3 position, float maxDrop)
-    {
-        float drop = position.Z + maxDrop;
-        TraceHit hit = TraceRay(position, new Vec3(0f, 0f, -1f), maxDrop);
-        _ = drop;
-        return hit;
-    }
+        => TraceRay(position, new Vec3(0f, 0f, -1f), maxDrop);
 }
 
 /// <summary>Slab-method AABB, reporting the face normal of the entry point.</summary>

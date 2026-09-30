@@ -9,7 +9,6 @@ using System.Threading.Tasks;
 // Forward ballistic simulator for CS2 throwables.
 // </copyright>
 
-
 namespace CS2LineupFinder.Core;
 
 /// <summary>
@@ -184,7 +183,6 @@ public sealed partial class GrenadeSimulator : ITrajectorySimulator
 
             onGround &= !takingOff;
 
-
             // Record on the tick grid so the path lines up with a 64 Hz recording.
             if (time >= nextSampleTime)
             {
@@ -266,7 +264,6 @@ public sealed partial class GrenadeSimulator : ITrajectorySimulator
     private static bool IsWorldGeometry(TraceHit hit, int ignoreEntityIndex)
         => hit.EntityIndex < 0 || hit.EntityIndex == ignoreEntityIndex;
 
-
     /// <summary>
     /// The velocity the flight starts with. The caller supplies it already
     /// resolved (aim direction at the mode speed plus the inherited share of the
@@ -322,9 +319,6 @@ public sealed partial class GrenadeSimulator : ITrajectorySimulator
         bool inZone = parameters.ZoneTest?.Invoke(position) ?? false;
         return new TrajectoryResult(path, impact, inZone);
     }
-
-
-
 
     private const int MaxFallbackResults = 5;
 
