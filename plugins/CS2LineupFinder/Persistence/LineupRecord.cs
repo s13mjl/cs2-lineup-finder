@@ -106,13 +106,13 @@ public sealed class LineupRecord
     /// <returns>The request, or <see langword="null"/> when origin or zone is degenerate.</returns>
     public LineupRequest? ToRequest(string mapName)
     {
-        var origin = new ThrowOrigin { Feet = Origin.ToVec3(), Eyes = Origin.ToVec3() + new Vec3(0f, 0f, DefaultEyeHeight) };
+        // Both a throw point and a landing zone can legitimately sit on the world
+        // origin, so the two are not rejected for being at zero. A file that predates
+        // the schema, or one a player hand edited down to nothing, is caught by the
+        // caller, which reads us as best effort and keeps whatever the file does have.
+        var feet = Origin.ToVec3();
+        var origin = new ThrowOrigin { Feet = feet, Eyes = feet + new Vec3(0f, 0f, DefaultEyeHeight) };
         var zone = Zone.ToGroundZone();
-        if (origin.Feet.IsZero(0.01f) || zone.Center.IsZero(0.01f))
-        {
-            return null;
-        }
-
         return new LineupRequest
         {
             MapName = string.IsNullOrWhiteSpace(Map) ? mapName : Map,

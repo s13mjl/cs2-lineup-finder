@@ -90,27 +90,30 @@ public sealed partial class CommandService
             session.Button = record.Button;
             session.MarkingMode = true;
 
-            var request = record.ToRequest(map);
-            session.LastOutcome = request is null
-                ? null
-                : SolverOutcome.Success(
-                    new[]
+            // The stored angles become the player's current result whatever the
+            // origin looks like. Rebuilding them through ToRequest would drop a
+            // line-up standing on the world origin, which is a legal position and
+            // indistinguishable from missing data once it has been written to JSON.
+            var zone = record.Zone.ToGroundZone();
+            session.LastOutcome = SolverOutcome.Success(
+                new[]
+                {
+                    new LineupSolution
                     {
-                        new LineupSolution
-                        {
-                            Yaw = record.Yaw,
-                            Pitch = record.Pitch,
-                            ReleasePosition = request.Origin.Eyes,
-                            ImpactPosition = record.Zone.ToGroundZone().Center,
-                            TargetDistance = 0f,
-                            Note = "saved " + record.CreatedAt.UtcDateTime.ToString("u", System.Globalization.CultureInfo.InvariantCulture),
-                        },
+                        Yaw = record.Yaw,
+                        Pitch = record.Pitch,
+                        ReleasePosition = new Vec3(record.Origin.X, record.Origin.Y, record.Origin.Z + LineupRecord.DefaultEyeHeight),
+                        ImpactPosition = zone.Center,
+                        TargetDistance = 0f,
+                        Note = "saved " + record.CreatedAt.UtcDateTime.ToString("u", System.Globalization.CultureInfo.InvariantCulture),
                     },
-                    TimeSpan.Zero);
+                },
+                TimeSpan.Zero);
             session.SelectedResultIndex = 0;
 
             Reply(playerSlot, Phrases.Id.Loaded, record.Name, CommandParser.RoundAngle(record.Yaw), CommandParser.RoundPlayerPitch(record.Pitch));
 
+            var request = record.ToRequest(map);
             if (request is not null && request.TargetZone is not null)
             {
                 Visuals.DrawZone(request.TargetZone, Config.BeamDurationSeconds);
