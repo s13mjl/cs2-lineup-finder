@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cd /d/desktop/0824/project/CS2utinity && ls -la && echo \"---BRANCHES---\" && git branch -a && echo \"---STATUS---\" && git status --short | head -50)"
+      "Bash(cd /d/desktop/0824/project/CS2utinity && ls -la && echo \"---BRANCHES---\" && git branch -a && echo \"---STATUS---\" && git status --short | head -50)",
+      "Bash(cd /d/desktop/0824/project/CS2utinity && find .qoder -type f | head -50 && echo \"---LOG---\" && git log --oneline -5 2>&1 | head -20 && echo \"---REMOTE---\" && git remote -v)"
     ]
   }
 }

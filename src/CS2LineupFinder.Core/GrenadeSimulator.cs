@@ -1,4 +1,4 @@
-﻿// <copyright file="GrenadeSimulator.cs" company="CS2LineupFinder">
+// <copyright file="GrenadeSimulator.cs" company="CS2LineupFinder">
 // Forward ballistic simulator for CS2 throwables.
 // </copyright>
 
@@ -29,6 +29,13 @@ public sealed class GrenadeSimulator : ITrajectorySimulator
     /// projectile a 4-unit hull; this stays inside that skin.
     /// </summary>
     private const float SurfaceSkin = 0.05f;
+
+    /// <summary>
+    /// Speed (u/s) along the contact normal above which the projectile counts as
+    /// having left the surface. A bounce always exceeds it, so the first frame
+    /// after a contact never has rolling friction applied to it twice.
+    /// </summary>
+    private const float TakeoffSpeedFloor = 1f;
 
     private readonly PhysicsParameters _parameters;
 
@@ -96,10 +103,17 @@ public sealed class GrenadeSimulator : ITrajectorySimulator
                 substepCount++;
                 Vector3 before = position;
 
-                velocity -= Vector3.UnitZ * (_parameters.GrenadeGravity.Value * subDt);
-                BounceResolver.ApplyDrag(ref velocity, subDt, _parameters);
+                // Exact kinematic step. Under constant acceleration the position
+                // update is p += v*dt + a*dt^2/2, which reproduces the analytic
+                // parabola to float precision. Plain semi-implicit Euler (updating
+                // v first, then p += v*dt) is only first-order and drifts about a
+                // unit over a long throw, which breaks the 0.5 unit acceptance
+                // bound, so the half-step form is used instead.
+                Vector3 accel = Vector3.UnitZ * -_parameters.GrenadeGravity.Value;
+                Vector3 target = position + (velocity * subDt) + (accel * (0.5f * subDt * subDt));
 
-                Vector3 target = position + (velocity * subDt);
+                velocity += accel * subDt;
+                BounceResolver.ApplyDrag(ref velocity, subDt, _parameters);
 
                 // Sweep in adaptive hops; every hop consults the raycaster, so a
                 // grenade cannot pass through geometry between samples.
@@ -143,10 +157,20 @@ public sealed class GrenadeSimulator : ITrajectorySimulator
                 time += subDt;
             }
 
-            if (onGround)
+            // Rolling friction only applies while the projectile is actually in
+            // contact. A positive velocity along the contact normal means the
+            // grenade is leaving the surface, so friction is skipped and the flag
+            // cleared; otherwise the exponential decay would keep eating a long
+            // flight and the grenade would stall after a single bounce.
+            bool takingOff = Vector3.Dot(velocity, lastNormal) > TakeoffSpeedFloor;
+
+            if (onGround && !takingOff)
             {
-                velocity = BounceResolver.ApplyRollingFriction(velocity, Vector3.UnitZ, dt, _parameters);
+                velocity = BounceResolver.ApplyRollingFriction(velocity, lastNormal, dt, _parameters);
             }
+
+            onGround &= !takingOff;
+
 
             // Record on the tick grid so the path lines up with a 64 Hz recording.
             if (time >= nextSampleTime)
@@ -156,11 +180,15 @@ public sealed class GrenadeSimulator : ITrajectorySimulator
             }
 
             bool atRest = velocity.LengthSquared < restSpeedSq;
-            if (DetonationModel.Evaluate(parameters.GrenadeType, time, velocity.Length, atRest, false, fuse).Detonated || atRest)
+            bool fuseDone = DetonationModel.Evaluate(
+                parameters.GrenadeType, time, velocity.Length, atRest, false, fuse).Detonated;
+
+            if (fuseDone || atRest)
             {
                 path.Add(new TrajectoryPoint(position, velocity, time, bounceCount));
                 return Finish(path, position, lastNormal, bounceCount, time, parameters, stepsTaken, substepCount, apex, pathLength, out diagnostics);
             }
+
         }
 
         path.Add(new TrajectoryPoint(position, velocity, time, bounceCount));
