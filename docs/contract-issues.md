@@ -108,3 +108,76 @@ The plugin distinguishes a user timeout from a solver timeout by combining its o
 reports `SolverStatus.Cancelled` for an internal budget expiry, the plugin cannot
 tell the two apart to give a better message. No behaviour depends on it today.
 
+### C-08 The contracts DLL and the plugin's compiled-in contracts are different types - requested
+
+`CS2LineupFinder.Core.csproj` builds against
+`contracts/CS2LineupFinder.Abstractions.csproj` through a `ProjectReference`, while
+the plugin compiles `contracts/*.cs` into its own `CS2LineupFinder.dll` so it stays
+a single drop-in file. Both assemblies declare
+`CS2LineupFinder.Contracts.ITrajectorySimulator`, but they are two distinct types
+to the runtime, so `typeof(ITrajectorySimulator).IsAssignableFrom(type)` is false
+for every real implementation and a `Core.dll` dropped next to the plugin resolves
+to the built-in stub. This is the failure mode C-06 predicts, and it is the one
+that looks like success from the server console.
+
+Verified on this branch rather than inferred: the release `CS2LineupFinder.Core.dll`
+carries a `CS2LineupFinder.Abstractions` metadata reference and the release
+`CS2LineupFinder.dll` carries none. `CoreLoader` already detects the situation and
+names the file and the reason in the log, but no log line can make the two types
+interchangeable.
+
+* **Options, both of which are `main`-level decisions:**
+  1. the plugin references `CS2LineupFinder.Abstractions` instead of globbing the
+     sources, and ships the DLL beside the plugin (two deployed files, not one);
+  2. `Core` and `Math` compile `contracts/*.cs` in exactly as the plugin does, and
+     the `ProjectReference` stays a compile-time-only convenience.
+* **Not applied:** either change crosses a layer boundary and contradicts an
+  assumption the other two branches were written against.
+
+### C-09 `LineupSolution.Pitch` documents the opposite of the agreed convention - requested
+
+`contracts/LineupTypes.cs` says of `Pitch`: "negative values look up, positive
+values look down". `contracts/README.md` says positive `pitch` looks **up**, and
+`GrenadeSimulator.DirectionFromAngles` and the plugin's stub both implement
+positive = up. The README and the code agree, so the XML comment is the odd one
+out - but it is the first thing a `Math` implementer reads when writing a solver.
+
+* **Suggested change:** make the `Pitch` summary say "positive values look up,
+  matching `contracts/README.md` and `GrenadeSimulator.DirectionFromAngles`", and
+  note that the engine's own angle convention is its mirror image. The plugin
+  converts at the display boundary only (`CommandParser.RoundPlayerPitch`), so a
+  solver must not pre-negate anything.
+
+### C-10 CounterStrikeSharp API facts that constrain every layer - open
+
+Two points recorded so the next agent does not have to rediscover them.
+
+* **`V113+` is not a package version.** The task brief asks for "CSSharp V113+",
+  which is the game build number, not the NuGet version. The package that ships a
+  `lib/net8.0` target is `CounterStrikeSharp.API`; `1.0.368` is the last such
+  release - `1.0.369` and later ship `lib/net10.0` only (`1.0.376` verified in the
+  local package cache). A `net8.0` plugin still loads into a .NET 10 host, so
+  `1.0.368` is the correct choice for this project and the pin is deliberate.
+* **There is no managed trace API in 1.0.368.** `TraceLine`/`TraceShape` on
+  `CCSPlayerPawn` and the `TraceResult` type arrive in 1.0.369, which needs the
+  .NET 10 runtime. The plugin therefore reaches tracing through
+  `ITraceBackend`, with a reflective backend that binds to those members when the
+  host has them and a null backend that reports the absence, which is what
+  `css_lf_zone`'s "cannot trace" fallback path is for.
+
+### C-11 `ThrowParams.Velocity` is not usable as a speed - open
+
+`ThrowParams.Velocity` is documented as "Initial velocity in u/s, already
+resolved", and `ThrowVelocityCalculator.Compute` builds it as
+`forward * LaunchSpeed + playerVelocity * VelocityInheritance`. The plugin's stub
+passes `normalized(direction) * SpeedFor(button)` instead and reads the length back,
+so the two agree on direction and disagree on speed: the stub ignores velocity
+inheritance and the aim bias, and its gravity is the 800 u/s^2 player value rather
+than the 320 u/s^2 `PhysicsParameters.GrenadeGravity` (documented in
+`docs/PHYSICS.md`). A real `Core` simulator will therefore answer a request with a
+different arc than the stub, which is expected, but it means the stub's numbers
+cannot be used as expected values in any test that later runs against Core.
+
+* **Suggested change:** say in the doc comment that only the direction of
+  `Velocity` is contractual for the simulator, or make `Compute` the only way a
+  caller builds the vector so stub, `Core` and tests agree by construction.
