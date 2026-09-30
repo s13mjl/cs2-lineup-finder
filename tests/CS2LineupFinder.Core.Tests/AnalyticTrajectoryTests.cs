@@ -18,7 +18,7 @@ internal static class Analytic
     /// Ideal projectile position at time <paramref name="t"/>:
     /// x = x0 + vx t, y = y0 + vy t, z = z0 + vz t - g t^2 / 2.
     /// </summary>
-    public static Vector3 Projectile(Vector3 origin, Vector3 velocity, float gravity, float t)
+    public static Vec3 Projectile(Vec3 origin, Vec3 velocity, float gravity, float t)
         => new(
             origin.X + (velocity.X * t),
             origin.Y + (velocity.Y * t),
@@ -56,12 +56,12 @@ public class AnalyticTrajectoryTests
         PhysicsParameters parameters = new();
         GrenadeSimulator simulator = new(parameters);
 
-        Vector3 origin = new(100f, -250f, 64f);
-        Vector3 velocity = new(600f, 120f, 300f);
+        Vec3 origin = new(100f, -250f, 64f);
+        Vec3 velocity = new(600f, 120f, 300f);
 
         // No floor: the grenade is still airborne when the budget runs out.
-        ThrowParams input = new(origin, velocity, GrenadeType.HeGrenade, 1f, 64);
-        MockRaycaster world = MockRaycaster.Empty();
+        ThrowParams input = new(origin, velocity, GrenadeType.He, 1f, 64);
+        MockWorldGeometry world = MockWorldGeometry.Empty();
 
         TrajectoryResult result = simulator.Simulate(input, world);
 
@@ -70,7 +70,7 @@ public class AnalyticTrajectoryTests
         float worst = 0f;
         foreach (TrajectoryPoint point in result.Points)
         {
-            Vector3 expected = Analytic.Projectile(origin, velocity, parameters.GrenadeGravity.Value, point.Time);
+            Vec3 expected = Analytic.Projectile(origin, velocity, parameters.GrenadeGravity.Value, point.Time);
             worst = MathF.Max(worst, (expected - point.Position).Length);
         }
 
@@ -95,20 +95,21 @@ public class AnalyticTrajectoryTests
         parameters.FuseSeconds.Value = 20f;
 
         const float floorHeight = 0f;
-        Vector3 origin = new(512f, 384f, floorHeight + 64f);
+        Vec3 origin = new(512f, 384f, floorHeight + 64f);
 
         // Straight up, full power.
         float speed = parameters.FullThrowSpeed.Value;
-        ThrowParams input = new(origin, new Vector3(0f, 0f, speed), GrenadeType.HeGrenade, 1f, 64);
-        MockRaycaster world = MockRaycaster.Empty().AddInfiniteFloor(floorHeight);
+        ThrowParams input = new(origin, new Vec3(0f, 0f, speed), GrenadeType.He, 1f, 64);
+        MockWorldGeometry world = MockWorldGeometry.Empty().AddInfiniteFloor(floorHeight);
 
         TrajectoryResult result = simulator.Simulate(input, world);
 
         // The grenade has no horizontal velocity, so the landing point must sit
         // directly below the release point.
-        float horizontalDrift = new Vector2(
+        float horizontalDrift = new Vec3(
             result.Impact.Position.X - origin.X,
-            result.Impact.Position.Y - origin.Y).Length;
+            result.Impact.Position.Y - origin.Y,
+            0f).Length;
 
         Assert.True(horizontalDrift < 1f,
             $"Vertical throw drifted {horizontalDrift:0.####} units horizontally, tolerance 1.");
@@ -142,7 +143,7 @@ public class AnalyticTrajectoryTests
 
         const float floorHeight = 0f;
         const float eyeHeight = 64f;
-        Vector3 origin = new(0f, 0f, floorHeight + eyeHeight);
+        Vec3 origin = new(0f, 0f, floorHeight + eyeHeight);
 
         // 45 degrees up and forward, at the full-power tier.
         float speed = parameters.FullThrowSpeed.Value;
@@ -151,13 +152,13 @@ public class AnalyticTrajectoryTests
 
         // Note: the release origin already sits 64 units up, so the grenade has
         // to fall to the floor, which the analytic range accounts for.
-        Vector3 velocity = new(
+        Vec3 velocity = new(
             speed * MathF.Cos(radians),
             0f,
             speed * MathF.Sin(radians));
 
-        ThrowParams input = new(origin, velocity, GrenadeType.HeGrenade, 1f, 64);
-        MockRaycaster world = MockRaycaster.Empty().AddInfiniteFloor(floorHeight);
+        ThrowParams input = new(origin, velocity, GrenadeType.He, 1f, 64);
+        MockWorldGeometry world = MockWorldGeometry.Empty().AddInfiniteFloor(floorHeight);
 
         TrajectoryResult result = simulator.Simulate(input, world);
 

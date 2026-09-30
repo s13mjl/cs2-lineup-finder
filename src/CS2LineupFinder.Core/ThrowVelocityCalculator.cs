@@ -37,22 +37,27 @@ public static class ThrowVelocityCalculator
     public static float CsGoLaunchSpeed(float pitchDegrees)
         => Math.Min((90f - pitchDegrees) * 6f, CsGoMaxLaunchSpeed);
 
-    /// <summary>Launch speed for a discrete CS2 throw mode, u/s.</summary>
-    public static float LaunchSpeed(ThrowMode mode, PhysicsParameters parameters)
-        => mode switch
+    /// <summary>
+    /// Launch speed for a button combination, u/s. The three tiers are measured
+    /// CS2 constants; see docs/PHYSICS.md.
+    /// </summary>
+    public static float LaunchSpeed(ThrowButton button, PhysicsParameters parameters)
+        => button switch
         {
-            ThrowMode.FullThrow => parameters.FullThrowSpeed.Value,
-            ThrowMode.Lob => parameters.LobThrowSpeed.Value,
-            ThrowMode.Underhand => parameters.UnderhandThrowSpeed.Value,
+            ThrowButton.Primary => parameters.FullThrowSpeed.Value,
+            ThrowButton.Both => parameters.LobThrowSpeed.Value,
+            ThrowButton.Secondary => parameters.UnderhandThrowSpeed.Value,
             _ => parameters.FullThrowSpeed.Value,
         };
+    /// <summary>World up, matching the contract coordinate convention (+Z up).</summary>
+    private static readonly Vec3 Up = new(0f, 0f, 1f);
 
     /// <summary>
-    /// Applies the CS:GO +10 degree up-bias to a unit aim vector. The original code
-    /// remaps <c>angThrow.x</c> into <c>[-10, +10]</c> before building the basis
-    /// vectors, which is a pitch offset, not a speed change.
+    /// Applies the CS:GO +10 degree up-bias to a unit aim vector. The original
+    /// code remaps <c>angThrow.x</c> into <c>[-10, +10]</c> before building the
+    /// basis vectors, which is a pitch offset rather than a speed change.
     /// </summary>
-    public static Vector3 ApplyAimBias(Vector3 forward, PhysicsParameters parameters)
+    public static Vec3 ApplyAimBias(Vec3 forward, PhysicsParameters parameters)
     {
         float bias = parameters.AimBiasDegrees.Value;
         if (Math.Abs(bias) < 1e-4f)
@@ -60,42 +65,42 @@ public static class ThrowVelocityCalculator
             return forward.Normalized();
         }
 
-        // Rotate about the right vector (forward x up). Sign chosen so a positive
-        // bias raises the throw for a level aim.
-        Vector3 right = Vector3.Cross(forward, Vector3.UnitZ);
-        if (right.IsZero())
+        // Rotate about the right vector (forward x up). A positive bias raises
+        // the throw for a level aim.
+        Vec3 right = Vec3.Cross(forward, Up);
+        if (right.LengthSquared <= 1e-8f)
         {
-            // Looking straight up or down: the cross product degenerates, so fall
+            // Looking straight up or down degenerates the cross product, so fall
             // back to the world X axis and accept the tiny in-plane error.
-            right = Vector3.UnitX;
+            right = new Vec3(1f, 0f, 0f);
         }
 
-        right = right.Normalized();
-        return RotateAboutAxis(forward.Normalized(), right, -bias).Normalized();
+        return RotateAboutAxis(forward.Normalized(), right.Normalized(), -bias).Normalized();
     }
 
     /// <summary>Rodrigues rotation of <paramref name="v"/> about unit <paramref name="axis"/>.</summary>
-    public static Vector3 RotateAboutAxis(Vector3 v, Vector3 axis, float degrees)
+    public static Vec3 RotateAboutAxis(Vec3 v, Vec3 axis, float degrees)
     {
         float radians = degrees * (MathF.PI / 180f);
         float c = MathF.Cos(radians);
         float s = MathF.Sin(radians);
-        return (v * c) + (Vector3.Cross(axis, v) * s) + (axis * (Vector3.Dot(axis, v) * (1f - c)));
+        return (v * c) + (Vec3.Cross(axis, v) * s) + (axis * (Vec3.Dot(axis, v) * (1f - c)));
     }
 
     /// <summary>
     /// Full launch velocity: aim direction at the mode's speed, plus an inherited
     /// fraction of the thrower's own velocity, scaled by <see cref="ThrowParams.ThrowStrength"/>.
     /// </summary>
-    public static Vector3 Compute(
-        Vector3 aimForward,
-        Vector3 playerVelocity,
-        ThrowMode mode,
+    public static Vec3 Compute(
+        Vec3 aimForward,
+        Vec3 playerVelocity,
+        ThrowButton button,
+        GrenadeType grenadeType,
         float throwStrength,
         PhysicsParameters parameters)
     {
-        Vector3 forward = ApplyAimBias(aimForward, parameters);
-        float speed = LaunchSpeed(mode, parameters) * Math.Clamp(throwStrength, 0f, 1f);
+        Vec3 forward = ApplyAimBias(aimForward, parameters);
+        float speed = LaunchSpeed(button, parameters) * Math.Clamp(throwStrength, 0f, 1f);
         float inheritance = parameters.VelocityInheritance.Value;
         return (forward * speed) + (playerVelocity * inheritance);
     }
@@ -106,6 +111,6 @@ public static class ThrowVelocityCalculator
     /// front cannot spawn the grenade inside geometry; see the trace in
     /// <c>ThrowGrenade</c>. The caller performs the trace and clamps the result.
     /// </summary>
-    public static Vector3 ReleasePoint(Vector3 eyePosition, Vector3 aimForward, PhysicsParameters parameters)
+    public static Vec3 ReleasePoint(Vec3 eyePosition, Vec3 aimForward, PhysicsParameters parameters)
         => eyePosition + (aimForward.Normalized() * parameters.ReleaseOffset.Value);
 }

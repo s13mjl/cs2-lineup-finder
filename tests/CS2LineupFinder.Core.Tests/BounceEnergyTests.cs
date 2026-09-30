@@ -37,13 +37,13 @@ public class BounceEnergyTests
         parameters.FuseSeconds.Value = 20f;
 
         const float floorHeight = 0f;
-        Vector3 origin = new(0f, 0f, floorHeight + 64f);
+        Vec3 origin = new(0f, 0f, floorHeight + 64f);
         float speed = parameters.FullThrowSpeed.Value;
         float radians = 45f * MathF.PI / 180f;
-        Vector3 velocity = new(speed * MathF.Cos(radians), 0f, speed * MathF.Sin(radians));
+        Vec3 velocity = new(speed * MathF.Cos(radians), 0f, speed * MathF.Sin(radians));
 
-        ThrowParams input = new(origin, velocity, GrenadeType.HeGrenade, 1f, 64);
-        MockRaycaster world = MockRaycaster.Empty().AddInfiniteFloor(floorHeight);
+        ThrowParams input = new(origin, velocity, GrenadeType.He, 1f, 64);
+        MockWorldGeometry world = MockWorldGeometry.Empty().AddInfiniteFloor(floorHeight);
 
         TrajectoryResult result = simulator.Simulate(input, world);
 
@@ -62,13 +62,13 @@ public class BounceEnergyTests
         parameters.FuseSeconds.Value = 20f;
 
         const float floorHeight = 0f;
-        Vector3 origin = new(0f, 0f, floorHeight + 64f);
+        Vec3 origin = new(0f, 0f, floorHeight + 64f);
         float speed = parameters.FullThrowSpeed.Value;
         float radians = 30f * MathF.PI / 180f;
-        Vector3 velocity = new(speed * MathF.Cos(radians), 0f, speed * MathF.Sin(radians));
+        Vec3 velocity = new(speed * MathF.Cos(radians), 0f, speed * MathF.Sin(radians));
 
-        ThrowParams input = new(origin, velocity, GrenadeType.HeGrenade, 1f, 64);
-        MockRaycaster world = MockRaycaster.Empty().AddInfiniteFloor(floorHeight);
+        ThrowParams input = new(origin, velocity, GrenadeType.He, 1f, 64);
+        MockWorldGeometry world = MockWorldGeometry.Empty().AddInfiniteFloor(floorHeight);
 
         TrajectoryResult result = simulator.Simulate(input, world);
 
@@ -127,11 +127,11 @@ public class BounceEnergyTests
 
         // A thin wall: 8 units thick. At 675 u/s a 64 Hz tick moves 10.5 units,
         // so without sub-stepping and adaptive sweeps this would pass through.
-        MockRaycaster world = MockRaycaster.Empty()
-            .AddBox(new Vector3(200f, -500f, -500f), new Vector3(208f, 500f, 500f));
+        MockWorldGeometry world = MockWorldGeometry.Empty()
+            .AddBox(new Vec3(200f, -500f, -500f), new Vec3(208f, 500f, 500f));
 
-        Vector3 origin = new(0f, 0f, 0f);
-        ThrowParams input = new(origin, new Vector3(675f, 0f, 0f), GrenadeType.HeGrenade, 1f, 64);
+        Vec3 origin = new(0f, 0f, 0f);
+        ThrowParams input = new(origin, new Vec3(675f, 0f, 0f), GrenadeType.He, 1f, 64);
 
         TrajectoryResult result = simulator.Simulate(input, world);
 
@@ -188,15 +188,15 @@ public class BounceEnergyTests
         parameters.FuseSeconds.Value = 20f;
 
         const float floorHeight = 0f;
-        MockRaycaster emptyWorld = MockRaycaster.Empty();
+        MockWorldGeometry emptyWorld = MockWorldGeometry.Empty();
 
         // 100 u/s versus 675 u/s, both travelling roughly the same distance.
-        ThrowParams slow = new(new Vector3(0f, 0f, 300f), new Vector3(100f, 0f, 0f), GrenadeType.HeGrenade, 1f, 64);
-        MockRaycaster slowWorld = MockRaycaster.Empty();
+        ThrowParams slow = new(new Vec3(0f, 0f, 300f), new Vec3(100f, 0f, 0f), GrenadeType.He, 1f, 64);
+        MockWorldGeometry slowWorld = MockWorldGeometry.Empty();
         simulator.Simulate(slow, slowWorld);
 
-        ThrowParams fast = new(new Vector3(0f, 0f, 300f), new Vector3(675f, 0f, 0f), GrenadeType.HeGrenade, 1f, 64);
-        MockRaycaster fastWorld = MockRaycaster.Empty();
+        ThrowParams fast = new(new Vec3(0f, 0f, 300f), new Vec3(675f, 0f, 0f), GrenadeType.He, 1f, 64);
+        MockWorldGeometry fastWorld = MockWorldGeometry.Empty();
         simulator.Simulate(fast, fastWorld);
 
         _ = emptyWorld;

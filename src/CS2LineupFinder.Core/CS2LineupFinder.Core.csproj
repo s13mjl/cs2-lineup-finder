@@ -4,9 +4,6 @@
     <RootNamespace>CS2LineupFinder.Core</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="..\..\contracts\*.cs" LinkBase="Contracts" />
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    <ProjectReference Include="..\..\contracts\CS2LineupFinder.Abstractions.csproj" />
   </ItemGroup>
 </Project>

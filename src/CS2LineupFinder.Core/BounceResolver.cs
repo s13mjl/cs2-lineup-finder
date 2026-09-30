@@ -10,14 +10,14 @@ namespace CS2LineupFinder.Core;
 /// <summary>Outcome of resolving a surface contact.</summary>
 public readonly struct BounceResult
 {
-    public BounceResult(Vector3 velocity, bool onGround, int bounceCount)
+    public BounceResult(Vec3 velocity, bool onGround, int bounceCount)
     {
         Velocity = velocity;
         OnGround = onGround;
         BounceCount = bounceCount;
     }
 
-    public Vector3 Velocity { get; }
+    public Vec3 Velocity { get; }
 
     /// <summary>True when the struck surface counts as walkable floor.</summary>
     public bool OnGround { get; }
@@ -50,16 +50,17 @@ public static class BounceResolver
     /// source for this; it is flagged as Community in PHYSICS.md and calibration
     /// can switch it off via <see cref="PhysicsParameters.SmokeExtraDampingEnabled"/>.
     /// </summary>
-    public static Vector3 Resolve(
-        Vector3 velocity,
-        Vector3 normal,
+    public static Vec3 Resolve(
+        Vec3 velocity,
+        Vec3 normal,
         bool onGround,
         GrenadeType type,
         PhysicsParameters parameters,
         ref bool firstSmokeBounceDone)
     {
         float restitution = parameters.Restitution.Value;
-        Vector3 reflected = velocity.Reflect(normal, restitution);
+        // Mirror about the normal, then scale: v - 2 (v.n) n, times restitution.
+        Vec3 reflected = (velocity - (normal * (2f * Vec3.Dot(velocity, normal)))) * restitution;
 
         if (!onGround)
         {
@@ -67,9 +68,9 @@ public static class BounceResolver
         }
 
         // Split into normal and tangential parts; damp only the tangential one.
-        float into = Vector3.Dot(reflected, normal);
-        Vector3 normalPart = normal * into;
-        Vector3 tangentPart = reflected - normalPart;
+        float into = Vec3.Dot(reflected, normal);
+        Vec3 normalPart = normal * into;
+        Vec3 tangentPart = reflected - normalPart;
 
         float retain = parameters.GroundFriction.Value;
 
@@ -91,11 +92,11 @@ public static class BounceResolver
     /// Valve models this as <c>SetFriction(0.7)</c> on the physics body; here it is
     /// applied once per tick to the tangential component only.
     /// </summary>
-    public static Vector3 ApplyRollingFriction(Vector3 velocity, Vector3 normal, float dt, PhysicsParameters parameters)
+    public static Vec3 ApplyRollingFriction(Vec3 velocity, Vec3 normal, float dt, PhysicsParameters parameters)
     {
-        float into = Vector3.Dot(velocity, normal);
-        Vector3 normalPart = normal * into;
-        Vector3 tangentPart = velocity - normalPart;
+        float into = Vec3.Dot(velocity, normal);
+        Vec3 normalPart = normal * into;
+        Vec3 tangentPart = velocity - normalPart;
 
         // Exponential decay on the tangential component, rate from the friction
         // coefficient. Clamped so a zero friction parameter means "no loss".
@@ -108,7 +109,7 @@ public static class BounceResolver
     /// Applies the (zero by default) air drag. Quadratic and linear terms are
     /// separate parameters so calibration can attribute an error to either.
     /// </summary>
-    public static void ApplyDrag(ref Vector3 velocity, float dt, PhysicsParameters parameters)
+    public static void ApplyDrag(ref Vec3 velocity, float dt, PhysicsParameters parameters)
     {
         float quadratic = parameters.DragCoefficient.Value;
         float linear = parameters.LinearDrag.Value;

@@ -1,0 +1,89 @@
+{
+  "source": "CS2 build 1.41.6.8/10847, de_dust2 open field, standing throw, 64 tick",
+  "samples": [
+    {
+      "name": "dust2-mid-45deg-full",
+      "origin": { "x": -500.0, "y": 120.0, "z": 64.0 },
+      "aimYaw": 0.0,
+      "aimPitch": 45.0,
+      "playerVelocity": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "grenadeType": "He",
+      "throwButton": "Primary",
+      "throwStrength": 1.0,
+      "gameTickRate": 64,
+      "floorHeight": 0.0,
+      "landingX": 985.2,
+      "landingY": 120.0
+    },
+    {
+      "name": "dust2-mid-30deg-full",
+      "origin": { "x": -500.0, "y": 120.0, "z": 64.0 },
+      "aimYaw": 0.0,
+      "aimPitch": 30.0,
+      "playerVelocity": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "grenadeType": "He",
+      "throwButton": "Primary",
+      "throwStrength": 1.0,
+      "gameTickRate": 64,
+      "floorHeight": 0.0,
+      "landingX": 1070.3,
+      "landingY": 120.0
+    },
+    {
+      "name": "dust2-mid-60deg-full",
+      "origin": { "x": -500.0, "y": 120.0, "z": 64.0 },
+      "aimYaw": 0.0,
+      "aimPitch": 60.0,
+      "playerVelocity": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "grenadeType": "He",
+      "throwButton": "Primary",
+      "throwStrength": 1.0,
+      "gameTickRate": 64,
+      "floorHeight": 0.0,
+      "landingX": 981.8,
+      "landingY": 120.0
+    },
+    {
+      "name": "dust2-mid-45deg-lob",
+      "origin": { "x": -500.0, "y": 120.0, "z": 64.0 },
+      "aimYaw": 0.0,
+      "aimPitch": 45.0,
+      "playerVelocity": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "grenadeType": "Smoke",
+      "throwButton": "Both",
+      "throwStrength": 1.0,
+      "gameTickRate": 64,
+      "floorHeight": 0.0,
+      "landingX": 640.4,
+      "landingY": 120.0
+    },
+    {
+      "name": "dust2-mid-45deg-underhand",
+      "origin": { "x": -500.0, "y": 120.0, "z": 64.0 },
+      "aimYaw": 0.0,
+      "aimPitch": 45.0,
+      "playerVelocity": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "grenadeType": "Smoke",
+      "throwButton": "Secondary",
+      "throwStrength": 1.0,
+      "gameTickRate": 64,
+      "floorHeight": 0.0,
+      "landingX": 120.6,
+      "landingY": 120.0
+    },
+    {
+      "name": "dust2-mid-45deg-running",
+      "origin": { "x": -500.0, "y": 120.0, "z": 64.0 },
+      "aimYaw": 0.0,
+      "aimPitch": 45.0,
+      "playerVelocity": { "x": 250.0, "y": 0.0, "z": 0.0 },
+      "grenadeType": "He",
+      "throwButton": "Primary",
+      "throwStrength": 1.0,
+      "gameTickRate": 64,
+      "floorHeight": 0.0,
+      "landingX": 1220.7,
+      "landingY": 120.0
+    }
+  ]
+}
