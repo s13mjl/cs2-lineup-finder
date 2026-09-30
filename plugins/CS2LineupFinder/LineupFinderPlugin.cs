@@ -42,9 +42,6 @@ namespace CS2LineupFinder.Plugin;
 /// </remarks>
 public sealed class LineupFinderPlugin : BasePlugin
 {
-    /// <summary>Directory holding the map catalogue and the saved line-ups.</summary>
-    private const string DataDirectory = "data";
-
     private ServiceGraph? _services;
 
     private MapCatalog? _catalog;
