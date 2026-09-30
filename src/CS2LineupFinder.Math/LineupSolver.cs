@@ -127,11 +127,13 @@ public sealed class LineupSolver : ILineupSolver
                 SolverStatus.NoSolution,
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "Zone centre is {0:0.#} units away but the maximum vacuum reach for {1} with button {2} is {3:0.#} units, so no angle can land there.",
+                    "Zone centre is {0:0.#} units away but the maximum vacuum reach for {1} with button {2} is {3:0.#} units at {4:0.#} u/s and gravity {5:0.#} u/s^2, so no angle can land there.",
                     launch.Range,
                     profile.ItemName,
                     request.Button,
-                    maxReach),
+                    maxReach,
+                    launch.Speed,
+                    launch.Gravity),
                 budget));
         }
 
