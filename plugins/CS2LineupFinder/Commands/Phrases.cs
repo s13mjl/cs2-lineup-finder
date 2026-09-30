@@ -305,7 +305,14 @@ public static class Phrases
     public static string Get(string language, int id, params object?[] args)
     {
         var table = IsChinese(language) ? Zh : En;
-        var template = id >= 0 && id < table.Length ? table[id] : En[id];
+        // A missing translation falls back to English, and an index that exists in
+        // neither table degrades to a visible marker: text lookup must never throw
+        // while a command handler is formatting a reply.
+        var template = id >= 0 && id < table.Length
+            ? table[id]
+            : id >= 0 && id < En.Length
+                ? En[id]
+                : "#" + id.ToString(System.Globalization.CultureInfo.InvariantCulture);
         return string.Format(System.Globalization.CultureInfo.InvariantCulture, template, args);
     }
 
