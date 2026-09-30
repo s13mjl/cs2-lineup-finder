@@ -318,7 +318,16 @@ public static class Phrases
             : id >= 0 && id < En.Length
                 ? En[id]
                 : "#" + id.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        return string.Format(System.Globalization.CultureInfo.InvariantCulture, template, args);
+        try
+        {
+            return string.Format(System.Globalization.CultureInfo.InvariantCulture, template, args);
+        }
+        catch (FormatException)
+        {
+            // A translation whose placeholders and arguments disagree must not take a
+            // command down mid-reply: show the raw template so the mismatch is visible.
+            return template;
+        }
     }
 
     /// <summary>Formats a message and wraps it in the plugin prefix.</summary>
@@ -327,7 +336,7 @@ public static class Phrases
     /// <param name="args">Format arguments.</param>
     /// <returns>The formatted, prefixed text.</returns>
     public static string Prefixed(string language, int id, params object?[] args)
-        => string.Format(System.Globalization.CultureInfo.InvariantCulture, Get(language, PrefixFormat), Get(language, id, args));
+        => Get(language, PrefixFormat, Get(language, id, args));
 
     /// <summary>True when the configured language is Chinese.</summary>
     /// <param name="language">Configured language tag.</param>
