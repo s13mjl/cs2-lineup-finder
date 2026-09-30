@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- The acceptance criteria ask for a zero warning build, and CI compiles this
+         project with -warnaserror, so the tests hold themselves to the same bar. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- The plugin compiles CounterStrikeSharp in with PrivateAssets=all and never
+         copies it, but the registration audit reflects over [ConsoleCommand] and
+         [CommandHelper], so those attribute types have to be loadable here. -->
+    <PackageReference Include="CounterStrikeSharp.API" Version="1.0.368" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\plugins\CS2LineupFinder\CS2LineupFinder.csproj" />
+  </ItemGroup>
+
+</Project>
