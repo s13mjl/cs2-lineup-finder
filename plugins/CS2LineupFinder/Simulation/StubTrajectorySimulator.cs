@@ -22,6 +22,9 @@ public sealed class StubTrajectorySimulator : ITrajectorySimulator
 
     private const int SamplesPerSecond = 64;
 
+    /// <summary>Projectile radius used when deciding whether the grenade has landed.</summary>
+    private const float CollisionRadius = 2f;
+
     /// <inheritdoc />
     public TrajectoryResult Simulate(ThrowParams parameters, IWorldGeometry world)
     {
@@ -61,7 +64,11 @@ public sealed class StubTrajectorySimulator : ITrajectorySimulator
             if (world is not null)
             {
                 var ground = world.ProbeGround(position, 4096f);
-                if (ground.Hit && ground.Position.Z >= position.Z)
+                // Landed means the grenade has descended to the surface below it. The
+                // comparison is "surface is at or below me, and I am within a grenade
+                // radius of it": the probe finds the floor from any height, so the
+                // height comparison is what decides the moment of contact.
+                if (ground.Hit && position.Z <= ground.Position.Z + CollisionRadius)
                 {
                     var impact = new FinalImpact(ground.Position, ground.PlaneNormal, 0, t, true, parameters.GrenadeType);
                     return new TrajectoryResult(points, impact, parameters.ZoneTest?.Invoke(ground.Position) ?? false);
