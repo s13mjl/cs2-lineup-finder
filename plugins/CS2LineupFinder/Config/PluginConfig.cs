@@ -31,17 +31,37 @@ public sealed class PluginConfig
     /// <summary>Length of the aim beam drawn from the player's eyes, in units.</summary>
     public double BeamLength { get; private set; } = 1024.0;
 
+    /// <summary>Sprite drawn for every beam. The default ships with the game.</summary>
+    public string BeamSprite { get; private set; } = "materials/sprites/laserbeam.vmat";
+
     /// <summary>Number of beam segments used to approximate a landing zone ring.</summary>
     public int RingSegments { get; private set; } = 24;
 
     /// <summary>Radius applied when the player creates a zone without one, in units.</summary>
     public double DefaultZoneRadius { get; private set; } = 128.0;
 
+    /// <summary>
+    /// How far in front of the player a landing zone is placed when the server
+    /// cannot trace the crosshair. Ignored on servers that expose the managed
+    /// trace API, where the real surface is used.
+    /// </summary>
+    public double FallbackAimDistance { get; private set; } = 1024.0;
+
     /// <summary>Language of player-facing text: <c>en</c> or <c>zh-CN</c>.</summary>
     public string Language { get; private set; } = "en";
 
     /// <summary>Upper bound on candidates handed to the simulator per search.</summary>
     public int MaxCandidates { get; private set; } = 64;
+
+    /// <summary>
+    /// Upper bound on collision sweeps one search may issue against the map. A
+    /// search that hits the cap treats the remaining traces as misses, so a broken
+    /// candidate cannot keep bouncing until the timeout fires.
+    /// </summary>
+    public int MaxTracesPerSolve { get; private set; } = 200000;
+
+    /// <summary>Whether the menu also lists the settings and backend diagnostics.</summary>
+    public bool VerboseMenu { get; private set; }
 
     /// <summary>Keys present in the file that the plugin does not understand.</summary>
     public IReadOnlyList<string> UnknownKeys { get; private set; } = Array.Empty<string>();
@@ -72,12 +92,16 @@ public sealed class PluginConfig
         config.SolveTimeoutSeconds = ClampPositive(document.GetDouble("solver.timeoutSeconds", config.SolveTimeoutSeconds), 0.1, 60.0);
         config.MaxResults = (int)ClampPositive(document.GetInt("solver.maxResults", config.MaxResults), 1, 50);
         config.MaxCandidates = (int)ClampPositive(document.GetInt("solver.maxCandidates", config.MaxCandidates), 1, 4096);
+        config.MaxTracesPerSolve = (int)ClampPositive(document.GetInt("solver.maxTracesPerSolve", config.MaxTracesPerSolve), 1, 5000000);
         config.EnableVisualization = document.GetBool("visuals.enabled", config.EnableVisualization);
         config.BeamDurationSeconds = ClampPositive(document.GetDouble("visuals.beamDurationSeconds", config.BeamDurationSeconds), 0.1, 60.0);
         config.BeamLength = ClampPositive(document.GetDouble("visuals.beamLength", config.BeamLength), 64.0, 32768.0);
+        config.BeamSprite = document.GetString("visuals.beamSprite", config.BeamSprite);
         config.RingSegments = (int)ClampPositive(document.GetInt("visuals.ringSegments", config.RingSegments), 3, 256);
         config.DefaultZoneRadius = ClampPositive(document.GetDouble("zone.defaultRadius", config.DefaultZoneRadius), 1.0, 8192.0);
+        config.FallbackAimDistance = ClampPositive(document.GetDouble("zone.fallbackAimDistance", config.FallbackAimDistance), 64.0, 32768.0);
         config.Language = NormalizeLanguage(document.GetString("general.language", config.Language));
+        config.VerboseMenu = document.GetBool("general.verboseMenu", config.VerboseMenu);
         config.UnknownKeys = FindUnknownKeys(document);
         return config;
     }
@@ -97,12 +121,16 @@ public sealed class PluginConfig
         "solver.timeoutSeconds",
         "solver.maxResults",
         "solver.maxCandidates",
+        "solver.maxTracesPerSolve",
         "visuals.enabled",
         "visuals.beamDurationSeconds",
         "visuals.beamLength",
+        "visuals.beamSprite",
         "visuals.ringSegments",
         "zone.defaultRadius",
+        "zone.fallbackAimDistance",
         "general.language",
+        "general.verboseMenu",
     };
 
     private static IReadOnlyList<string> FindUnknownKeys(TomlDocument document)

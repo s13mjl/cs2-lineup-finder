@@ -21,11 +21,24 @@ public sealed class PlayerSession
     /// <summary>Last known player name, used as the <c>author</c> of saved line-ups.</summary>
     public string PlayerName { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Map the player was last seen on. Captured from the engine on connect and on
+    /// every map start, so a request can name the map the physics was calibrated for
+    /// even when the session predates the current map.
+    /// </summary>
+    public string MapName { get; set; } = string.Empty;
+
     /// <summary>World position marked with <c>css_lf_start</c>, i.e. the throw origin.</summary>
     public Vec3? ThrowPoint { get; set; }
 
     /// <summary>Eye position captured together with <see cref="ThrowPoint"/>.</summary>
     public Vec3? EyePoint { get; set; }
+
+    /// <summary>
+    /// Velocity the player carried when the throw point was marked. A jump throw
+    /// inherits it, so it is part of the request rather than a detail.
+    /// </summary>
+    public Vec3 ThrowVelocity { get; set; } = Vec3.Zero;
 
     /// <summary>Landing area created with <c>css_lf_zone</c>.</summary>
     public GroundZone? Zone { get; set; }
@@ -73,6 +86,7 @@ public sealed class PlayerSession
     {
         ThrowPoint = null;
         EyePoint = null;
+        ThrowVelocity = Vec3.Zero;
         Zone = null;
         MarkingMode = false;
         LastOutcome = null;

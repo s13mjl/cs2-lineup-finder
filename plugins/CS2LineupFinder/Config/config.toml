@@ -28,6 +28,10 @@ beamDurationSeconds = 3.0
 # Length of the aim beam drawn from the player's eyes, in world units.
 beamLength = 1024.0
 
+# Sprite used for every drawn beam. This one ships with the game, so nothing has
+# to be precached.
+beamSprite = "materials/sprites/laserbeam.vmat"
+
 # Segments used to approximate a circular landing zone.
 ringSegments = 24
 
@@ -35,6 +39,16 @@ ringSegments = 24
 # Radius used by css_lf_zone when the player does not pass one.
 defaultRadius = 128.0
 
+# How far in front of the player css_lf_zone places the landing zone when the
+# server cannot trace the crosshair. CounterStrikeSharp exposes the managed trace
+# API from 1.0.369 on, which needs the .NET 10 runtime; on older builds the zone
+# centre falls back to this distance along the player's view direction.
+fallbackAimDistance = 1024.0
+
 [general]
 # Player facing language: "en" or "zh-CN".
 language = "en"
+
+# Adds the search settings, the data directory and the trace backend to the bottom
+# of the !lf_menu list. Useful while setting a server up; noisy for players.
+verboseMenu = false
