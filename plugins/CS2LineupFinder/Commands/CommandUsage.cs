@@ -130,7 +130,10 @@ public static class CommandUsage
     public static string UsageFor(string consoleName)
     {
         var spec = CommandSpec.Find(consoleName);
-        return spec is null ? string.Empty : CommandSpec.ChatPrefix + spec.Value.Usage;
+        // Build the line from the chat alias plus the argument summary. Concatenating
+        // the prefix with the usage alone would drop the command name and print
+        // "!lf_smoke | flash | molotov | he" instead of "!lf_grenade smoke | ...".
+        return spec is null ? string.Empty : "!" + spec.Value.FullUsage;
     }
 
     /// <summary>Chat token for a grenade family, the inverse of <see cref="TryParseGrenadeType"/>.</summary>

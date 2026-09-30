@@ -67,6 +67,7 @@ public static class Phrases
         /* 52 */ "The line-up finder is disabled on {0}.",
         /* 53 */ "Saved under {0}",
         /* 54 */ "This server cannot trace the map, so zones fall back to a fixed distance.",
+        /* 55 */ "Usage: {0}",
     };
 
     private static readonly string[] Zh =
@@ -126,6 +127,7 @@ public static class Phrases
         /* 52 */ "瞄点预测在 {0} 上未启用。",
         /* 53 */ "保存位置：{0}",
         /* 54 */ "本服务器无法进行地图射线检测，落点将使用固定距离回退。",
+        /* 55 */ "用法：{0}",
     };
 
     /// <summary>Index of the message wrapped with the plugin prefix.</summary>
@@ -295,6 +297,9 @@ public static class Phrases
 
         /// <summary>Reported when the trace backend cannot reach map geometry.</summary>
         public const int NoTraceBackend = 54;
+
+        /// <summary>Shows how a command is called, when the player typed too little.</summary>
+        public const int Usage = 55;
     }
 
     /// <summary>Formats a message for the configured language.</summary>

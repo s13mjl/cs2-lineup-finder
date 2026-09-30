@@ -161,7 +161,7 @@ public sealed partial class CommandService
             }
             else
             {
-                Reply(playerSlot, Phrases.Id.UnknownOption, error, "css_lf_zone circle <radius> | css_lf_zone rect <width> <height>");
+                Reply(playerSlot, Phrases.Id.UnknownOption, error, CommandUsage.UsageFor("css_lf_zone"));
             }
 
             return;

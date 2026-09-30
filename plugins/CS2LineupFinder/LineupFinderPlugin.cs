@@ -670,7 +670,7 @@ public sealed class LineupFinderPlugin : BasePlugin
         }
 
         Refresh(services, slot);
-        return new LfCommandContext(
+        var context = new LfCommandContext(
             services.Commands,
             services.Movement,
             services.World,
@@ -679,6 +679,33 @@ public sealed class LineupFinderPlugin : BasePlugin
             services.Root,
             slot,
             Args(commandInfo));
+
+        return CheckArguments(commandInfo, context) ? context : null;
+    }
+
+    /// <summary>
+    /// Reports the usage line of a command that was called without its required
+    /// argument. CounterStrikeSharp already enforces <c>MinArgs</c> and prints the
+    /// same text, but it does so before the handler runs, so this is the belt to that
+    /// pair of braces: the command layer must not have to guess whether a missing
+    /// argument is an empty name or a missing one.
+    /// </summary>
+    /// <param name="commandInfo">Command being handled.</param>
+    /// <param name="context">Context built for it.</param>
+    /// <returns><see langword="true"/> when the handler may run.</returns>
+    private bool CheckArguments(CommandInfo commandInfo, LfCommandContext context)
+    {
+        var spec = CommandSpec.Find(commandInfo.ArgByIndex(0));
+        if (spec is null || spec.Value.TakesNoArguments || context.Arguments.Count > 0)
+        {
+            return true;
+        }
+
+        commandInfo.ReplyToCommand(Phrases.Prefixed(
+            Config.Language,
+            Phrases.Id.Usage,
+            Option.UsageFor(spec.Value.Console)));
+        return false;
     }
 
     /// <summary>Keeps the session's identity fields current before a command reads them.</summary>
