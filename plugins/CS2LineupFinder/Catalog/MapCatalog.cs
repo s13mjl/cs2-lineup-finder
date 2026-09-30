@@ -5,7 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using CS2LineupFinder.Plugin.Commands;
 
-namespace CS2LineupFinder.Plugin.Data;
+namespace CS2LineupFinder.Plugin.Catalog;
 
 /// <summary>
 /// The map point catalogue that lives in <c>plugins/CS2LineupFinder/data/</c>.

@@ -1,0 +1,11 @@
+# Saved line-ups are server state, not source. Everything below data/lineups/
+# is written at runtime by css_lf_save; keep the directory itself so a fresh
+# checkout still has somewhere to write to.
+lineups/**
+!lineups/.gitkeep
+
+# Keep the two catalogue templates above tracked: they are what an operator
+# copies when setting the plugin up.
+!maps.json
+!points.json
+!README.md

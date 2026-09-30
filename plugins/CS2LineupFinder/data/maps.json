@@ -1,0 +1,5 @@
+{
+  "//": "Maps the plugin is allowed to solve on. An empty list means every map is allowed, which is the right setting for a practice server that runs all of them.",
+  "//maps": "Add entries like \"de_mirage\" to restrict the plugin, e.g. to keep a public server free of the menu.",
+  "maps": []
+}

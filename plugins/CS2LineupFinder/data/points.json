@@ -1,0 +1,24 @@
+{
+  "//": "Named positions an operator wants players to be able to see. Optional: delete this file and every command still works, css_lf_list just starts empty.",
+  "//shape": "Each entry needs name, kind ('throw' or 'land') and x/y/z in Source world units. 'note' is free text.",
+  "maps": {
+    "de_mirage": [
+      {
+        "name": "t_spawn",
+        "kind": "throw",
+        "note": "Standing on the T spawn kerb, back to the wall.",
+        "x": -1750.0,
+        "y": -900.0,
+        "z": -160.0
+      },
+      {
+        "name": "window",
+        "kind": "land",
+        "note": "Window on the A site connector, smoke this to block the AWPer.",
+        "x": -760.0,
+        "y": -820.0,
+        "z": 60.0
+      }
+    ]
+  }
+}
