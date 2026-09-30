@@ -20,6 +20,25 @@ public interface ILineupSolver
     IAsyncEnumerable<AngleCandidate> EnumerateCandidatesAsync(
         LineupRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Produces candidate view angles worth simulating for
+    /// <paramref name="request"/>, seeding the search with the release speed and
+    /// gravity of <paramref name="profile"/>. Callers that hold the authoritative
+    /// profile (the forward simulator) pass it explicitly; passing
+    /// <see langword="null"/> falls back to the profile-less overload, whose
+    /// default implementation resolves speeds through an
+    /// <see cref="IVDataProvider"/>.
+    /// </summary>
+    /// <param name="request">Request describing origin, stance and target zone.</param>
+    /// <param name="profile">Profile fixing release speed and gravity scale, or <see langword="null"/> to fall back.</param>
+    /// <param name="cancellationToken">Cancels the search.</param>
+    /// <returns>An ordered, possibly empty, sequence of angle candidates.</returns>
+    IAsyncEnumerable<AngleCandidate> EnumerateCandidatesAsync(
+        LineupRequest request,
+        GrenadeProfile? profile,
+        CancellationToken cancellationToken = default)
+        => EnumerateCandidatesAsync(request, cancellationToken);
 }
 
 /// <summary>A candidate view angle produced by <see cref="ILineupSolver"/>.</summary>

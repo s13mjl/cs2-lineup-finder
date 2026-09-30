@@ -6,8 +6,9 @@
     <RootNamespace>CS2LineupFinder.Plugin</RootNamespace>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
-    <!-- The shared contracts are compiled into this assembly and rely on the
-         implicit usings of the contracts project, so mirror them here. -->
+  <!-- The shared contracts ship as CS2LineupFinder.Abstractions.dll next to the
+       plugin, so Core and Math (which reference the same assembly) and the
+       plugin all see one interface type at runtime. -->
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -18,7 +19,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\contracts\*.cs" LinkBase="Contracts" />
+    <ProjectReference Include="..\..\contracts\CS2LineupFinder.Abstractions.csproj" />
   </ItemGroup>
 
   <ItemGroup>

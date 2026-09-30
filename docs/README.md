@@ -41,14 +41,15 @@ around `contracts/`.
 **EN.** The plugin only talks to the contract interfaces
 (`ITrajectorySimulator`, `ILineupSolver`) — never to types in `src/`. That is what
 lets the plugin shell build, run and be tested while the physics and math layers
-are still in flight. The shared contracts are compiled **into** the plugin
-assembly (`CS2LineupFinder.csproj` includes `../../contracts/*.cs`), so the plugin
-stays a single drop-in DLL.
+are still in flight. The shared contracts ship as a referenced assembly
+(`CS2LineupFinder.Abstractions.dll`, deployed beside the plugin), so the plugin,
+Core and Math all bind to one contract type at runtime (see C-08 in
+[contract-issues.md](contract-issues.md)).
 
 **中文.** 插件只面向 contracts 里的接口（`ITrajectorySimulator`、`ILineupSolver`）
 编程，**不直接引用** `src/` 的类型。因此即使弹道与数学层还在开发，插件本体也能独立
-编译、运行和被测试。contracts 的代码被直接编译进插件程序集，所以发布物仍然只有一个
-DLL。
+编译、运行和被测试。contracts 以引用程序集的形式发布（`CS2LineupFinder.Abstractions.dll`，
+与插件一同部署），插件、Core、Math 在运行时绑定同一个契约类型（见 C-08）。
 
 **Merge order / 合并顺序:** `feat/math-core` → `feat/physics-sim` →
 `feat/plugin-shell`, which matches the dependency direction. See
@@ -57,8 +58,8 @@ DLL。
 ## 3. Quick start / 快速开始
 
 ```powershell
-# 1. Build the plugin (repository has no .sln, so name the project)
-dotnet build plugins/CS2LineupFinder/CS2LineupFinder.csproj -c Release
+# 1. Build everything (solution uses the .slnx format, .NET 10 SDK default)
+dotnet build CS2LineupFinder.slnx -c Release
 
 # 2. Copy the whole output directory to the server
 #    bin/Release/net8.0/  ->  game/csgo/addons/counterstrikesharp/plugins/CS2LineupFinder/

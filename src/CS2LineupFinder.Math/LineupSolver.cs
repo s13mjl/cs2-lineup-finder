@@ -14,7 +14,7 @@ namespace CS2LineupFinder.Math;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The contract surface, <see cref="EnumerateCandidatesAsync"/>, is pure mathematics: it
+/// The contract surface, <see cref="EnumerateCandidatesAsync(CS2LineupFinder.Contracts.LineupRequest, System.Threading.CancellationToken)"/>, is pure mathematics: it
 /// streams angles ranked by a vacuum prediction so the physics layer can simulate them in
 /// order and stop as soon as one lands.
 /// <see cref="SolveAsync(LineupRequest, IImpactEvaluator, GrenadeProfile, CancellationToken)"/>
@@ -38,7 +38,7 @@ public sealed class LineupSolver : ILineupSolver
     /// <summary>Creates a solver.</summary>
     /// <param name="vdata">
     /// Grenade profile source used to resolve the release speed. Only
-    /// <see cref="EnumerateCandidatesAsync"/> needs it;
+    /// <see cref="EnumerateCandidatesAsync(CS2LineupFinder.Contracts.LineupRequest, System.Threading.CancellationToken)"/> needs it;
     /// <see cref="SolveAsync(LineupRequest, IImpactEvaluator, GrenadeProfile, CancellationToken)"/> takes the
     /// profile per request and works without it.
     /// </param>
@@ -71,6 +71,46 @@ public sealed class LineupSolver : ILineupSolver
     {
         var candidates = BuildAnalyticCandidates(request);
         foreach (var candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.CompletedTask.ConfigureAwait(false);
+            yield return candidate;
+        }
+    }
+
+    /// <summary>
+    /// Runs the analytic seeding stage against an explicitly supplied grenade profile,
+    /// so callers without an <see cref="IVDataProvider"/> (for example the forward
+    /// simulator in Core, which owns the authoritative parameter table) can drive the
+    /// same coarse-to-fine candidate stream. Passing <c>null</c> falls back to the
+    /// VData-driven overload, keeping the contract behaviour unchanged.
+    /// </summary>
+    /// <param name="request">Request describing origin, stance and target zone.</param>
+    /// <param name="profile">Profile fixing the release speed and gravity scale; null falls back to VData.</param>
+    /// <param name="cancellationToken">Cancels the enumeration.</param>
+    /// <returns>Ranked candidates, empty when the zone is out of reach or has no profile.</returns>
+    public async IAsyncEnumerable<AngleCandidate> EnumerateCandidatesAsync(
+        LineupRequest request,
+        GrenadeProfile? profile,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        if (profile is null)
+        {
+            await foreach (var candidate in EnumerateCandidatesAsync(request, cancellationToken).ConfigureAwait(false))
+            {
+                yield return candidate;
+            }
+
+            yield break;
+        }
+
+        if (request is null || !_options.TryValidate(out _) ||
+            !TryResolveLaunch(request, profile, out var launch, out _))
+        {
+            yield break;
+        }
+
+        foreach (var candidate in BuildCandidatesForLaunch(request, in launch))
         {
             cancellationToken.ThrowIfCancellationRequested();
             await Task.CompletedTask.ConfigureAwait(false);
@@ -350,6 +390,11 @@ public sealed class LineupSolver : ILineupSolver
             return new List<AngleCandidate>();
         }
 
+        return BuildCandidatesForLaunch(request, in launch);
+    }
+
+    private List<AngleCandidate> BuildCandidatesForLaunch(LineupRequest request, in Launch launch)
+    {
         var limit = Max(1, request.MaxCandidates);
         var candidates = new List<AngleCandidate>(limit);
         foreach (var seed in BuildSeeds(launch))

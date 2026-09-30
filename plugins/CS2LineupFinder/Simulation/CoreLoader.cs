@@ -7,22 +7,20 @@ using CS2LineupFinder.Plugin.Abstractions;
 
 namespace CS2LineupFinder.Plugin.Simulation;
 
-// TODO: replace with real Core. This loader is a bridge, not a stub: it exists so
-// the plugin can pick up CS2LineupFinder.Core and CS2LineupFinder.Math the moment
-// their assemblies are dropped next to the plugin DLL, without a rebuild.
+// This loader is the integration seam: it picks up CS2LineupFinder.Core and
+// CS2LineupFinder.Math from the plugin directory at runtime, so the layers stay
+// independently buildable. The plugin references CS2LineupFinder.Abstractions
+// (see C-08), and Core/Math reference the same assembly, so interface types match.
 /// <summary>
 /// Finds the real simulator and solver and installs them into a
 /// <see cref="SimulatorBridge"/>.
 /// </summary>
 /// <remarks>
-/// The plugin is a single drop-in DLL, so Core and Math are loaded as separate
-/// plugin-local assemblies rather than referenced at compile time. That has one
-/// consequence worth stating plainly: because the plugin compiles <c>contracts/</c>
-/// into itself, a Core assembly that references
-/// <c>CS2LineupFinder.Abstractions.dll</c> declares a <em>different</em>
-/// <c>ITrajectorySimulator</c> type to the one this plugin implements. The loader
-/// therefore checks assignability and reports exactly that failure instead of
-/// silently staying on the stub.
+/// Core and Math are loaded as plugin-local assemblies rather than referenced at
+/// compile time, keeping the layer boundaries build-order-free. All three
+/// assemblies bind to the shared <c>CS2LineupFinder.Abstractions.dll</c>, so the
+/// assignability check below is expected to pass for correctly built drops; it is
+/// retained as a diagnostic for stale or mismatched deployments.
 /// </remarks>
 public static class CoreLoader
 {

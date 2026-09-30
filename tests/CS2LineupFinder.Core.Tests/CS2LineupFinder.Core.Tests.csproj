@@ -10,5 +10,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\CS2LineupFinder.Core\CS2LineupFinder.Core.csproj" />
+    <ProjectReference Include="..\..\src\CS2LineupFinder.Math\CS2LineupFinder.Math.csproj" />
   </ItemGroup>
 </Project>

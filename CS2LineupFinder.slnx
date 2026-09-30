@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/contracts/">
+    <Project Path="contracts/CS2LineupFinder.Abstractions.csproj" />
+  </Folder>
+  <Folder Name="/plugins/">
+    <Project Path="plugins/CS2LineupFinder/CS2LineupFinder.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/CS2LineupFinder.Core/CS2LineupFinder.Core.csproj" />
+    <Project Path="src/CS2LineupFinder.Math/CS2LineupFinder.Math.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CS2LineupFinder.Core.Tests/CS2LineupFinder.Core.Tests.csproj" />
+    <Project Path="tests/CS2LineupFinder.Math.Tests/CS2LineupFinder.Math.Tests.csproj" />
+    <Project Path="tests/CS2LineupFinder.Plugin.Tests/CS2LineupFinder.Plugin.Tests.csproj" />
+  </Folder>
+</Solution>

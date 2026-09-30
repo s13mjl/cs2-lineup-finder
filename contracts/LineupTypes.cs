@@ -47,7 +47,13 @@ public sealed record LineupSolution
     /// <summary>Suggested view angles, in degrees. Yaw is normalized to -180..180.</summary>
     public required float Yaw { get; init; }
 
-    /// <summary>Suggested pitch in degrees, negative values look up, positive values look down.</summary>
+    /// <summary>
+    /// Suggested pitch in degrees, positive values look up, matching the
+    /// contracts README and <c>GrenadeSimulator.DirectionFromAngles</c>.
+    /// The engine's own angle convention is the mirror image; the plugin
+    /// converts at the display boundary only, so solvers must not
+    /// pre-negate anything.
+    /// </summary>
     public required float Pitch { get; init; }
 
     /// <summary>Position the grenade was released from.</summary>

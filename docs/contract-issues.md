@@ -108,7 +108,7 @@ The plugin distinguishes a user timeout from a solver timeout by combining its o
 reports `SolverStatus.Cancelled` for an internal budget expiry, the plugin cannot
 tell the two apart to give a better message. No behaviour depends on it today.
 
-### C-08 The contracts DLL and the plugin's compiled-in contracts are different types - requested
+### C-08 The contracts DLL and the plugin's compiled-in contracts are different types - applied during integration
 
 `CS2LineupFinder.Core.csproj` builds against
 `contracts/CS2LineupFinder.Abstractions.csproj` through a `ProjectReference`, while
@@ -133,8 +133,13 @@ interchangeable.
      the `ProjectReference` stays a compile-time-only convenience.
 * **Not applied:** either change crosses a layer boundary and contradicts an
   assumption the other two branches were written against.
+* **Resolution (applied):** the plugin now references
+  `CS2LineupFinder.Abstractions.csproj` instead of globbing `contracts/*.cs`
+  (option 1). The DLL is copied to the plugin output and deployed beside it, so
+  Core and Math resolve through the same interface type and the loader's
+  assignability check succeeds.
 
-### C-09 `LineupSolution.Pitch` documents the opposite of the agreed convention - requested
+### C-09 `LineupSolution.Pitch` documents the opposite of the agreed convention - applied during integration
 
 `contracts/LineupTypes.cs` says of `Pitch`: "negative values look up, positive
 values look down". `contracts/README.md` says positive `pitch` looks **up**, and
@@ -147,6 +152,8 @@ out - but it is the first thing a `Math` implementer reads when writing a solver
   note that the engine's own angle convention is its mirror image. The plugin
   converts at the display boundary only (`CommandParser.RoundPlayerPitch`), so a
   solver must not pre-negate anything.
+* **Resolution (applied):** the XML comment now states the positive-up
+  convention with the engine mirror note, exactly as suggested.
 
 ### C-10 CounterStrikeSharp API facts that constrain every layer - open
 
@@ -181,3 +188,27 @@ cannot be used as expected values in any test that later runs against Core.
 * **Suggested change:** say in the doc comment that only the direction of
   `Velocity` is contractual for the simulator, or make `Compute` the only way a
   caller builds the vector so stub, `Core` and tests agree by construction.
+
+### C-12 The simulator never passed a `GrenadeProfile` to the solver - applied during integration
+
+ `GrenadeSimulator.EvaluateCandidate` hardcoded `GrenadeProfile? profile = null`,
+ and `SolveLineupAsync` called the profile-less enumeration. A real
+ `ILineupSolver` without an `IVDataProvider` therefore threw for every solve,
+ and the reachability pre-check ran at the 800 u/s^2 player gravity instead of
+ the 320 u/s^2 grenade value - refusing every legal zone beyond roughly 200
+ units without consuming a simulation, exactly the failure predicted by the
+ math-core handoff.
+
+ * **Resolution (applied):** `src/CS2LineupFinder.Core/GrenadeProfiles.cs` holds the
+   per-family default profiles (speed ladder 675 / 438.75 / 202.5 u/s,
+   GravityScale 0.4, Elasticity 0.45, all cited to PHYSICS.md); both call sites
+   in `GrenadeSimulator` now resolve `GrenadeProfiles.Get(request.GrenadeType)` and
+   pass it through. The `ILineupSolver` contract gained a `GrenadeProfile?` overload
+   whose default implementation falls back to the profile-less one, so existing
+   implementers (stub, test fakes) compile unchanged. The plugin's 800 base
+   gravity in `PluginConfig.BuildEnvironment` is intentional:
+   `Ballistics.GravityFor` multiplies by the profile's `GravityScale`.
+ * **Regression pin:** `GravityProfileIntegrationTests` runs the real Math
+   solver against the real Core simulator on a floor world with a 700-unit zone
+   - unreachable at 800 u/s^2 (max vacuum reach ~570 units), comfortably inside
+   reach at 320 - so the wiring cannot silently regress.

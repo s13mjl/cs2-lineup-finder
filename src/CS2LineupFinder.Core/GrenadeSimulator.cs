@@ -341,7 +341,8 @@ public sealed partial class GrenadeSimulator : ITrajectorySimulator
 
         try
         {
-            await foreach (AngleCandidate candidate in solver.EnumerateCandidatesAsync(request, cancellationToken).ConfigureAwait(false))
+            var profile = GrenadeProfiles.Get(request.GrenadeType);
+            await foreach (AngleCandidate candidate in solver.EnumerateCandidatesAsync(request, profile, cancellationToken).ConfigureAwait(false))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -411,7 +412,7 @@ public sealed partial class GrenadeSimulator : ITrajectorySimulator
         inZone = false;
 
         ThrowOrigin origin = request.Origin;
-        GrenadeProfile? profile = null;
+        GrenadeProfile profile = GrenadeProfiles.Get(request.GrenadeType);
         Vec3 forward = DirectionFromAngles(candidate.Yaw, candidate.Pitch);
 
         // Release point: eyes pushed forward along the aim, matching the

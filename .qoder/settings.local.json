@@ -2,7 +2,18 @@
   "permissions": {
     "allow": [
       "Bash(cd /d/desktop/0824/project/CS2utinity && ls -la && echo \"---BRANCHES---\" && git branch -a && echo \"---STATUS---\" && git status --short | head -50)",
-      "Bash(cd /d/desktop/0824/project/CS2utinity && find .qoder -type f | head -50 && echo \"---LOG---\" && git log --oneline -5 2>&1 | head -20 && echo \"---REMOTE---\" && git remote -v)"
+      "Bash(cd /d/desktop/0824/project/CS2utinity && find .qoder -type f | head -50 && echo \"---LOG---\" && git log --oneline -5 2>&1 | head -20 && echo \"---REMOTE---\" && git remote -v)",
+      "Bash(cd /d/desktop/0824/project/CS2utinity && ls -la && echo \"---STATUS FULL---\" && git status 2>&1 | head -30 && echo \"---ALL BRANCHES---\" && git for-each-ref --format='%\\(refname:short\\) %\\(objectname:short\\) %\\(committerdate:iso\\)' refs/heads)",
+      "Bash(cd /d/desktop/0824/project/CS2utinity && cat PROJECT_LAYOUT.md)",
+      "Bash(cd /d/desktop/0824/project/CS2utinity/contracts && for f in *.cs *.csproj README.md; do echo \"=============== $f ===============\"; cat \"$f\"; done 2>&1 | head -400)",
+      "Bash(cd /d/desktop/0824/project/CS2utinity/contracts && echo \"=== ILineupSolver.cs ===\" && cat ILineupSolver.cs && echo \"=== LineupTypes.cs ===\" && cat LineupTypes.cs && echo \"=== ITrajectorySimulator.cs ===\" && cat ITrajectorySimulator.cs)",
+      "Bash(cd /d/desktop/0824/project/CS2utinity && echo \"---WORKTREES---\" && git worktree list && echo \"---REFLOG---\" && git reflog -8 2>&1 | head -12 && echo \"---docs---\" && ls -R docs 2>&1 | head -20)",
+      "Bash(cd /d/desktop/0824/project/CS2utinity && echo \"=== e02d59e tree ===\" && git ls-tree -r --name-only e02d59e && echo \"=== 08af03b \\(physics tip?\\) ===\" && git ls-tree -r --name-only feat/physics-sim | head -30 && echo \"=== gitignore ===\" && cat .gitignore)",
+      "Bash(cd /d/desktop/0824/project/CS2utinity && git worktree add -b feat/math-core ../CS2utinity-math e02d59e 2>&1 | tail -5 && echo \"===LIST===\" && git worktree list)",
+      "Bash(cd /d/desktop/0824/project/CS2utinity-math && echo \"=== Directory.Build.props ===\" && cat Directory.Build.props && echo \"=== Abstractions.csproj ===\" && cat contracts/CS2LineupFinder.Abstractions.csproj && echo \"=== IWorldGeometry.cs ===\" && cat contracts/IWorldGeometry.cs && echo \"=== dotnet ===\" && dotnet --version 2>&1 | tail -3)",
+      "Bash(cd /d/desktop/0824/project/CS2utinity-math && echo \"=== SDKs ===\" && dotnet --list-sdks && echo \"=== Runtimes ===\" && dotnet --list-runtimes 2>&1 | grep -i \"NETCore\" && echo \"=== Core.Tests.csproj ===\" && cat tests/CS2LineupFinder.Core.Tests/CS2LineupFinder.Core.Tests.csproj && echo \"=== Core.csproj ===\" && cat src/CS2LineupFinder.Core/CS2LineupFinder.Core.csproj && echo \"=== contract-issues ===\" && cat docs/contract-issues.md | head -40)",
+      "Bash(cd /d/desktop/0824/project/CS2utinity-math && dotnet build src/CS2LineupFinder.Math/CS2LineupFinder.Math.csproj -v q --nologo 2>&1 | tail -25)",
+      "Bash(cd /d/desktop/0824/project/CS2utinity-math && dotnet build src/CS2LineupFinder.Math/CS2LineupFinder.Math.csproj -v q --nologo 2>&1 | tail -12)"
     ]
   }
 }
