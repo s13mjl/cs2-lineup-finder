@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>CS2LineupFinder.Math</AssemblyName>
+    <RootNamespace>CS2LineupFinder.Math</RootNamespace>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- math-core owns no NuGet surface: contracts only, see PROJECT_LAYOUT.md. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\contracts\CS2LineupFinder.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>
