@@ -173,10 +173,20 @@ public sealed class StubTrajectorySimulator : ITrajectorySimulator
         {
             Mode = request.ThrowMode,
             IgnoreEntityIndex = -1,
+            ZoneTest = request.TargetZone.Contains,
         };
 
         var local = new StubTrajectorySimulator();
         var result = local.Simulate(parameters, world);
+        if (!result.IsInZone)
+        {
+            // Only a throw that actually lands in the area the player marked is a
+            // line-up. Reporting the nearest miss instead would put a beam and a
+            // cross on a grenade that does not reach the target, which is exactly
+            // the kind of wrong answer the real solver exists to avoid.
+            return null;
+        }
+
         var impact = result.Impact.Position;
         var distance = new Vec3(impact.X - request.TargetZone.Center.X, impact.Y - request.TargetZone.Center.Y, 0f).Length;
 

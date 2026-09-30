@@ -101,6 +101,24 @@ public sealed class SimulatorBridge
                 () => simulator.SolveLineupAsync(request, solver, world, cts.Token),
                 CancellationToken.None);
 
+            // Race the implementation against the budget. Cancelling the token is a
+            // request, not a guarantee: a Core simulator that never observes it, or an
+            // implementation that blocks without awaiting, would otherwise leave
+            // css_lf_find waiting forever and keep the player's search slot locked.
+            // Waiting on the timer instead means the answer always arrives inside the
+            // budget, whatever the implementation does.
+            var finished = await Task
+                .WhenAny(solveTask, Task.Delay(budget, CancellationToken.None))
+                .ConfigureAwait(false);
+
+            if (!ReferenceEquals(finished, solveTask))
+            {
+                return SolverOutcome.Failure(
+                    SolverStatus.Timeout,
+                    string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Search exceeded the {budget.TotalSeconds:0.#}s budget."),
+                    stopwatch.Elapsed);
+            }
+
             var outcome = await solveTask.ConfigureAwait(false);
             if (outcome is null)
             {
