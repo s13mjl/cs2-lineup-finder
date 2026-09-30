@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /d/desktop/0824/project/CS2utinity && ls -la && echo \"---BRANCHES---\" && git branch -a && echo \"---STATUS---\" && git status --short | head -50)"
+    ]
+  }
+}
