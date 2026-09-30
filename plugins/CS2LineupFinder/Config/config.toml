@@ -1,0 +1,40 @@
+# CS2 Lineup Finder - runtime configuration.
+#
+# Deploy next to the plugin DLL as:
+#   game/csgo/addons/counterstrikesharp/configs/plugins/CS2LineupFinder/config.toml
+#
+# The plugin reads it on load and again on every map start. Missing keys keep
+# their built-in default, so trimming this file down is safe.
+
+[solver]
+# Wall clock budget for css_lf_find, in seconds. The plugin cancels the search
+# when the budget expires and reports a timeout instead of stalling the server.
+timeoutSeconds = 3.0
+
+# How many solutions are printed in chat and stored per search.
+maxResults = 5
+
+# Upper bound on candidate view angles handed to the simulator per search.
+maxCandidates = 64
+
+[visuals]
+# Master switch for every in-world visual: aim beam, landing ring, cross
+# marker and the marker showing the current throw origin.
+enabled = true
+
+# Lifetime of the aim beam and landing markers, in seconds.
+beamDurationSeconds = 3.0
+
+# Length of the aim beam drawn from the player's eyes, in world units.
+beamLength = 1024.0
+
+# Segments used to approximate a circular landing zone.
+ringSegments = 24
+
+[zone]
+# Radius used by css_lf_zone when the player does not pass one.
+defaultRadius = 128.0
+
+[general]
+# Player facing language: "en" or "zh-CN".
+language = "en"
