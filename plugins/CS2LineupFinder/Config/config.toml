@@ -1,10 +1,12 @@
 # CS2 Lineup Finder - runtime configuration.
 #
 # Deploy next to the plugin DLL as:
-#   game/csgo/addons/counterstrikesharp/configs/plugins/CS2LineupFinder/config.toml
+#   game/csgo/addons/counterstrikesharp/plugins/CS2LineupFinder/config/config.toml
 #
-# The plugin reads it on load and again on every map start. Missing keys keep
-# their built-in default, so trimming this file down is safe.
+# The path is resolved from ModuleDirectory, the plugin's own folder, so the file
+# has to sit beside the DLL rather than under configs/plugins/. The plugin reads
+# it on load and again on !lf_reload; a map change does not re-read it. Missing
+# keys keep their built-in default, so trimming this file down is safe.
 
 [solver]
 # Wall clock budget for css_lf_find, in seconds. The plugin cancels the search
@@ -16,6 +18,12 @@ maxResults = 5
 
 # Upper bound on candidate view angles handed to the simulator per search.
 maxCandidates = 64
+
+# Upper bound on collision sweeps one search may issue against the map. A search
+# that hits the cap treats the remaining traces as misses, so a candidate that
+# keeps bouncing cannot run until the timeout fires. Raise it on large maps if a
+# search times out while candidates are still being tested.
+maxTracesPerSolve = 200000
 
 [visuals]
 # Master switch for every in-world visual: aim beam, landing ring, cross

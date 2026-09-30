@@ -1,9 +1,11 @@
 # Plugin data directory
 
-Everything in here is read at map start and can be edited on a running server;
-the plugin picks the change up on the next `css_lf_reload` or map change. Nothing in
-this directory is required - delete a file and the plugin falls back to the
-built-in default shown below.
+Everything in here can be edited on a running server without stopping it, as long
+as you know which file is re-read when: `maps.json` and `points.json` are read at
+map start, and `lineups/` is read on every command. There is no reload command for
+the catalogue, so a change to the first two takes effect on the next map change or
+plugin reload. Nothing in this directory is required - delete a file and the
+plugin falls back to the built-in default shown below.
 
 | Path | Read by | Purpose |
 | --- | --- | --- |
@@ -47,4 +49,3 @@ One directory per map, one file per saved line-up. `css_lf_save` creates
 them, `css_lf_list` reads them. The directory is git-ignored because its
 contents are server state. The file schema is in
 [USAGE.md](../../../docs/USAGE.md#saved-file-schema).
-
