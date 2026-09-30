@@ -140,12 +140,11 @@ clamped, and unknown keys are logged as a warning at load instead of failing.
 | `general.language` | `"en"` | Player-facing text: `"en"` or `"zh-CN"`. 玩家可见文案语言。 |
 | `general.verboseMenu` | `false` | Appends the search settings and the data directory to the bottom of `!lf_menu`, plus a line for the stub simulator or the missing trace backend while either is in use. 在菜单底部追加求解参数与存档目录，并在使用内置桩或射线后端不可用时各加一行提示。 |
 
-One more key is understood by the plugin but not in the shipped template:
-`solver.maxTracesPerSolve` (default `200000`) caps the collision sweeps one search
-may issue, so a broken candidate cannot bounce until the timeout fires. Add it
-under `[solver]` if you need it.
-另有一个插件认识但模板里没有的键：`solver.maxTracesPerSolve`（默认
-`200000`），限制单次求解的碰撞检测次数上限。
+`solver.maxTracesPerSolve` (default `200000`) caps the collision sweeps one
+search may issue, so a broken candidate cannot bounce until the timeout fires.
+It ships in the template and can be lowered on a busy server.
+`solver.maxTracesPerSolve`（默认 `200000`）限制单次求解的碰撞检测次数上限，
+模板中已包含，服务器负载高时可调低。
 
 ## 6. Data files / 数据文件
 
