@@ -109,7 +109,7 @@ public sealed partial class CommandService
                     TimeSpan.Zero);
             session.SelectedResultIndex = 0;
 
-            Reply(playerSlot, Phrases.Id.Loaded, record.Name, CommandParser.RoundAngle(record.Yaw), CommandParser.RoundAngle(record.Pitch));
+            Reply(playerSlot, Phrases.Id.Loaded, record.Name, CommandParser.RoundAngle(record.Yaw), CommandParser.RoundPlayerPitch(record.Pitch));
 
             if (request is not null && request.TargetZone is not null)
             {
@@ -160,7 +160,7 @@ public sealed partial class CommandService
             var record = records[i];
             var detail = string.Create(
                 System.Globalization.CultureInfo.InvariantCulture,
-                $"{CommandUsage.Token(record.GrenadeType)} {CommandUsage.Token(record.ThrowMode)}/{CommandUsage.Token(record.Button)} yaw {CommandParser.RoundAngle(record.Yaw):0.0} pitch {CommandParser.RoundAngle(record.Pitch):0.0} by {record.Author}");
+                $"{CommandUsage.Token(record.GrenadeType)} {CommandUsage.Token(record.ThrowMode)}/{CommandUsage.Token(record.Button)} yaw {CommandParser.RoundAngle(record.Yaw):0.0} pitch {CommandParser.RoundPlayerPitch(record.Pitch):0.0} by {record.Author}");
             Reply(playerSlot, Phrases.Id.ListEntry, record.Name, detail);
         }
 

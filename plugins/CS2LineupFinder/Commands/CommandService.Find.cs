@@ -113,7 +113,7 @@ public sealed partial class CommandService
                         Phrases.Id.ResultLine,
                         i + 1,
                         CommandParser.RoundAngle(solution.Yaw),
-                        CommandParser.RoundAngle(solution.Pitch),
+                        CommandParser.RoundPlayerPitch(solution.Pitch),
                         solution.TargetDistance);
                 }
 

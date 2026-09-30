@@ -176,6 +176,22 @@ public static class CommandParser
     /// <returns>Contract pitch, positive looks up.</returns>
     public static float FromPlayerPitch(float pitchDegrees) => -pitchDegrees;
 
+    /// <summary>
+    /// Rounds a contract pitch into the number a player should type into
+    /// <c>setang</c> or read off <c>cl_showpos</c>, i.e. the player convention,
+    /// at the precision chat shows it.
+    /// </summary>
+    /// <remarks>
+    /// The two conventions differ in sign and nothing else, which is exactly the
+    /// kind of detail that gets re-derived wrongly at each call site: a pitch the
+    /// solver returns as <c>+35</c> (contract: 35 degrees up) has to reach the
+    /// player as <c>-35</c>. Routing every displayed pitch through this helper
+    /// keeps that flip in one place.
+    /// </remarks>
+    /// <param name="contractPitch">Pitch in the contract convention, positive looks up.</param>
+    /// <returns>The pitch a player reads in game, rounded to one decimal place.</returns>
+    public static float RoundPlayerPitch(float contractPitch) => RoundAngle(ToPlayerPitch(contractPitch));
+
     /// <summary>Renders a world point for chat output.</summary>
     /// <param name="point">Point to render.</param>
     /// <returns>The formatted point.</returns>

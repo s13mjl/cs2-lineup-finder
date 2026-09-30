@@ -51,7 +51,12 @@ public sealed class LineupRecord
     [JsonPropertyName("yaw")]
     public float Yaw { get; set; }
 
-    /// <summary>Suggested view pitch in degrees, negative looks up.</summary>
+    /// <summary>
+    /// Suggested view pitch in degrees, in the contract convention where positive
+    /// looks up. Chat prints its mirror image (see
+    /// <c>CommandParser.RoundPlayerPitch</c>) because players read pitch in the
+    /// engine convention, where positive looks down.
+    /// </summary>
     [JsonPropertyName("pitch")]
     public float Pitch { get; set; }
 
