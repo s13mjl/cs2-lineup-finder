@@ -1,0 +1,56 @@
+name: build
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-test-package:
+    name: Build, test and package (net8.0)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      # No solution file: the repository is layered and each owner lands on a
+      # different branch, so the projects that must build are listed explicitly.
+      - name: Build plugin
+        run: dotnet build plugins/CS2LineupFinder/CS2LineupFinder.csproj -c Release -warnaserror -v minimal
+
+      - name: Build Core tests
+        run: dotnet build tests/CS2LineupFinder.Core.Tests/CS2LineupFinder.Core.Tests.csproj -c Release -warnaserror -v minimal
+
+      - name: Build plugin tests
+        run: dotnet build tests/CS2LineupFinder.Plugin.Tests/CS2LineupFinder.Plugin.Tests.csproj -c Release -warnaserror -v minimal
+
+      - name: Test Core
+        run: dotnet test tests/CS2LineupFinder.Core.Tests/CS2LineupFinder.Core.Tests.csproj -c Release --no-build --logger "trx;LogFileName=core.trx" --results-directory TestResults
+
+      - name: Test plugin
+        run: dotnet test tests/CS2LineupFinder.Plugin.Tests/CS2LineupFinder.Plugin.Tests.csproj -c Release --no-build --logger "trx;LogFileName=plugin.trx" --results-directory TestResults
+
+      # The whole output directory is the deployable: DLL, pdb, xml, config/config.toml and data/*.json.
+      - name: Upload plugin package
+        uses: actions/upload-artifact@v4
+        with:
+          name: CS2LineupFinder-plugin
+          path: plugins/CS2LineupFinder/bin/Release/net8.0/**
+          if-no-files-found: error
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/**
+          if-no-files-found: ignore
