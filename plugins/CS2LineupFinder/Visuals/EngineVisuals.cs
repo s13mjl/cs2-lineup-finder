@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using CS2LineupFinder.Contracts;
 using CS2LineupFinder.Plugin.Abstractions;
@@ -30,6 +31,13 @@ public sealed class EngineVisuals : IPluginVisuals, IDisposable
 
     private int _disposed;
     private int _markGeneration;
+
+    /// <summary>
+    /// Pending one-per-tick draw steps. DrawZone fills this from the command
+    /// thread; <see cref="Step"/> drains exactly one entry per game tick, so a
+    /// ring never lands on the wire as a single snapshot burst.
+    /// </summary>
+    private readonly ConcurrentQueue<Action> _steps = new();
 
     /// <summary>Creates the visual layer.</summary>
     /// <param name="dispatcher">Marshals drawing onto the game thread.</param>
@@ -94,21 +102,52 @@ public sealed class EngineVisuals : IPluginVisuals, IDisposable
         ArgumentNullException.ThrowIfNull(zone);
 
         var segments = Math.Clamp(_config().RingSegments, 3, 256);
+        // A newer mark supersedes whatever ring is still queued.
         var generation = Interlocked.Increment(ref _markGeneration);
+        _steps.Clear();
 
-        if (zone.Type == GroundZoneType.Rectangle)
+        for (var i = 0; i < segments; i++)
         {
-            SchedulePerimeterSegment(zone, 0, segments, durationSeconds, generation, DrawRectangleSegment);
+            var index = i;
+            _steps.Enqueue(() =>
+            {
+                if (Volatile.Read(ref _markGeneration) != generation || _disposed != 0)
+                {
+                    return;
+                }
+
+                if (zone.Type == GroundZoneType.Rectangle)
+                {
+                    DrawRectangleSegment(zone, index, segments, durationSeconds);
+                }
+                else
+                {
+                    var radius = zone.Radius > 0f ? zone.Radius : (float)_config().DefaultZoneRadius;
+                    var from = PointOnCircle(zone.Center, 360f * index / segments, radius);
+                    var to = PointOnCircle(zone.Center, 360f * (index + 1) / segments, radius);
+                    _renderer.DrawBeam(from, to, durationSeconds);
+                }
+            });
+        }
+    }
+
+    /// <summary>
+    /// Runs at most one queued draw step. Called from the plugin's tick handler on
+    /// the game thread - deliberately NOT through <see cref="GameThreadDispatcher"/>,
+    /// whose drain loop would immediately re-consume re-posted work in the same tick
+    /// and undo the pacing.
+    /// </summary>
+    public void Step()
+    {
+        if (_disposed != 0 || _dispatcher.IsShuttingDown)
+        {
             return;
         }
 
-        var radius = zone.Radius > 0f ? zone.Radius : (float)_config().DefaultZoneRadius;
-        SchedulePerimeterSegment(zone, 0, segments, durationSeconds, generation, (z, i, total, dur) =>
+        if (_steps.TryDequeue(out var step))
         {
-            var previous = PointOnCircle(z.Center, 360f * i / total, radius);
-            var next = PointOnCircle(z.Center, 360f * (i + 1) / total, radius);
-            _renderer.DrawBeam(previous, next, dur);
-        });
+            step();
+        }
     }
 
     /// <inheritdoc />
@@ -132,8 +171,9 @@ public sealed class EngineVisuals : IPluginVisuals, IDisposable
             return;
         }
 
-        // Any incremental draw chain still in flight belongs to superseded marks.
+        // Any queued draw steps belong to superseded marks.
         Interlocked.Increment(ref _markGeneration);
+        _steps.Clear();
 
         if (_dispatcher.IsGameThread)
         {
@@ -153,40 +193,9 @@ public sealed class EngineVisuals : IPluginVisuals, IDisposable
         }
 
         Interlocked.Increment(ref _markGeneration);
+        _steps.Clear();
         _renderer.Clear();
         _renderer.Dispose();
-    }
-
-    /// <summary>
-    /// Draws one perimeter segment per game tick. Spawning a whole ring of beams in
-    /// a single tick floods a freshly connected client's reliable snapshot buffer
-    /// and disconnects it with an overflow error, so the ring is spread across
-    /// ticks: each posted action draws its one segment and schedules the next.
-    /// </summary>
-    private void SchedulePerimeterSegment(
-        GroundZone zone,
-        int index,
-        int segments,
-        double durationSeconds,
-        int generation,
-        Action<GroundZone, int, int, double> drawSegment)
-    {
-        _dispatcher.Post(() =>
-        {
-            if (Volatile.Read(ref _markGeneration) != generation || _disposed != 0 || !_config().EnableVisualization)
-            {
-                // A newer mark, a Clear or a config change superseded this chain.
-                return;
-            }
-
-            drawSegment(zone, index, segments, durationSeconds);
-
-            var next = index + 1;
-            if (next < segments)
-            {
-                SchedulePerimeterSegment(zone, next, segments, durationSeconds, generation, drawSegment);
-            }
-        });
     }
 
     private void DrawRectangleSegment(GroundZone zone, int index, int segments, double durationSeconds)

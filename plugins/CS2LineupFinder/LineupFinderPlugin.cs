@@ -595,6 +595,7 @@ public sealed class LineupFinderPlugin : BasePlugin
     {
         try
         {
+            _services?.Visuals.Step();
             _services?.Dispatcher.Drain();
         }
         catch (Exception ex)
