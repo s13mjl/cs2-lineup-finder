@@ -28,14 +28,14 @@ internal sealed class ReflectiveTraceBackend : ITraceBackend
     private readonly ConstructorInfo _vector1;
     private readonly MethodInfo _traceEndShape;
     private readonly MethodInfo _traceHullShape;
-    private readonly PropertyInfo _didHit;
+    private readonly MethodInfo _didHit;
     private readonly PropertyInfo _fraction;
     private readonly PropertyInfo _endPos;
     private readonly PropertyInfo _normal;
     private readonly PropertyInfo _hitPoint;
     private readonly PropertyInfo _hasExactHitPoint;
-    private readonly PropertyInfo _hitEntity;
-    private readonly MethodInfo _entityIndex;
+    private readonly MethodInfo _hitEntity;
+    private readonly PropertyInfo _entityIndex;
     private readonly PropertyInfo _designerName;
 
     private ReflectiveTraceBackend(Assembly assembly)
@@ -54,18 +54,20 @@ internal sealed class ReflectiveTraceBackend : ITraceBackend
         _traceEndShape = Require(trace, "TraceEndShape", 4);
         _traceHullShape = Require(trace, "TraceHullShape", 6);
 
-        var result = _traceEndShape.GetParameters()[0].ParameterType;
-        _didHit = Require(result, "DidHit");
+        // TraceEndShape returns TraceResult by value; its first *parameter* is the
+        // start position Vector, so the reflected member surface must come from the
+        // return type (this is what the Vector.DidHit misdiagnosis came from).
+        var result = _traceEndShape.ReturnType;
+        _didHit = RequireMethod(result, "DidHit");
         _fraction = Require(result, "Fraction");
         _endPos = Require(result, "EndPos");
         _normal = Require(result, "Normal");
         _hitPoint = Require(result, "HitPoint");
         _hasExactHitPoint = Require(result, "HasExactHitPoint");
-        _hitEntity = Require(result, "HitEntity");
+        _hitEntity = RequireMethod(result, "HitEntity");
 
-        var entity = _hitEntity.GetMethod!.ReturnType;
-        _entityIndex = entity.GetMethod("get_EntityIndex")
-            ?? throw new MissingMemberException("CEntityInstance.EntityIndex");
+        var entity = _hitEntity.ReturnType;
+        _entityIndex = Require(entity, "Index");
         _designerName = entity.GetProperty("DesignerName")
             ?? throw new MissingMemberException("CEntityInstance.DesignerName");
     }
@@ -116,6 +118,19 @@ internal sealed class ReflectiveTraceBackend : ITraceBackend
     private static PropertyInfo Require(Type type, string name) =>
         type.GetProperty(name) ?? throw new MissingMemberException(type.FullName + "." + name);
 
+    private static MethodInfo RequireMethod(Type type, string name)
+    {
+        foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static))
+        {
+            if (method.Name == name && method.GetParameters().Length == 0)
+            {
+                return method;
+            }
+        }
+
+        throw new MissingMemberException(type.FullName + "." + name);
+    }
+
     private static MethodInfo Require(Type type, string name, int parameterCount)
     {
         foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static))
@@ -145,7 +160,7 @@ internal sealed class ReflectiveTraceBackend : ITraceBackend
 
     private TraceSample Read(object result)
     {
-        var didHit = (bool)(_didHit.GetValue(result) ?? false);
+        var didHit = (bool)(_didHit.Invoke(result, null) ?? false);
         var fraction = (float)(_fraction.GetValue(result) ?? 1f);
         var exact = (bool)(_hasExactHitPoint.GetValue(result) ?? false);
 
@@ -161,13 +176,13 @@ internal sealed class ReflectiveTraceBackend : ITraceBackend
     {
         try
         {
-            var entity = _hitEntity.GetValue(result);
+            var entity = _hitEntity.Invoke(result, null);
             if (entity is null)
             {
                 return (-1, null);
             }
 
-            var index = _entityIndex.Invoke(entity, null) as uint?;
+            var index = _entityIndex.GetValue(entity) as uint?;
             var name = _designerName.GetValue(entity) as string;
             return (index is null ? -1 : (int)index.Value, name);
         }
