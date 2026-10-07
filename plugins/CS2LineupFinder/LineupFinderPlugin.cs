@@ -19,6 +19,7 @@ using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Menu;
 using CounterStrikeSharp.API.Modules.Timers;
+using CounterStrikeSharp.API.Modules.Utils;
 using Microsoft.Extensions.Logging;
 using Option = CS2LineupFinder.Plugin.Commands.CommandUsage;
 
@@ -82,6 +83,11 @@ public sealed class LineupFinderPlugin : BasePlugin
             AddTickTimer(1, OnTick, TimerFlags.REPEAT | TimerFlags.STOP_ON_MAPCHANGE);
             services.Dispatcher.CaptureGameThread();
 
+            // Beams need their sprite material in the resource system before any
+            // env_beam reaches a client; otherwise each beam message fails to parse
+            // and the client eventually disconnects with an overflow error.
+            RegisterListener<Listeners.OnServerPrecacheResources>(OnServerPrecacheResources);
+
             Logger.LogInformation(
                 "CS2LineupFinder loaded: {Config} {Trace} {Core}",
                 Config.ToString(),
@@ -126,6 +132,16 @@ public sealed class LineupFinderPlugin : BasePlugin
         }
 
         base.Dispose(disposing);
+    }
+
+    /// <summary>
+    /// Registers the beam sprite with the resource system during the server's
+    /// precache phase. Must happen before the first beam is networked; a map
+    /// change re-runs it automatically.
+    /// </summary>
+    private void OnServerPrecacheResources(ResourceManifest manifest)
+    {
+        manifest.AddResource(BeamRenderer.DefaultSprite);
     }
 
     /// <summary>Reads the catalogue for the new map and resets every player's session.</summary>
