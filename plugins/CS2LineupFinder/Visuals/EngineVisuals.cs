@@ -29,6 +29,7 @@ public sealed class EngineVisuals : IPluginVisuals, IDisposable
     private readonly Func<PluginConfig> _config;
 
     private int _disposed;
+    private int _markGeneration;
 
     /// <summary>Creates the visual layer.</summary>
     /// <param name="dispatcher">Marshals drawing onto the game thread.</param>
@@ -92,24 +93,21 @@ public sealed class EngineVisuals : IPluginVisuals, IDisposable
     {
         ArgumentNullException.ThrowIfNull(zone);
 
-        _dispatcher.Post(() =>
-        {
-            var segments = Math.Clamp(_config().RingSegments, 3, 256);
-            if (zone.Type == GroundZoneType.Rectangle)
-            {
-                DrawRectangle(zone, segments, durationSeconds);
-                return;
-            }
+        var segments = Math.Clamp(_config().RingSegments, 3, 256);
+        var generation = Interlocked.Increment(ref _markGeneration);
 
-            var radius = zone.Radius > 0f ? zone.Radius : (float)_config().DefaultZoneRadius;
-            var previous = PointOnCircle(zone.Center, 0f, radius);
-            for (var i = 1; i <= segments; i++)
-            {
-                var angle = 360f * i / segments;
-                var next = PointOnCircle(zone.Center, angle, radius);
-                _renderer.DrawBeam(previous, next, durationSeconds);
-                previous = next;
-            }
+        if (zone.Type == GroundZoneType.Rectangle)
+        {
+            SchedulePerimeterSegment(zone, 0, segments, durationSeconds, generation, DrawRectangleSegment);
+            return;
+        }
+
+        var radius = zone.Radius > 0f ? zone.Radius : (float)_config().DefaultZoneRadius;
+        SchedulePerimeterSegment(zone, 0, segments, durationSeconds, generation, (z, i, total, dur) =>
+        {
+            var previous = PointOnCircle(z.Center, 360f * i / total, radius);
+            var next = PointOnCircle(z.Center, 360f * (i + 1) / total, radius);
+            _renderer.DrawBeam(previous, next, dur);
         });
     }
 
@@ -134,6 +132,9 @@ public sealed class EngineVisuals : IPluginVisuals, IDisposable
             return;
         }
 
+        // Any incremental draw chain still in flight belongs to superseded marks.
+        Interlocked.Increment(ref _markGeneration);
+
         if (_dispatcher.IsGameThread)
         {
             _renderer.Clear();
@@ -151,22 +152,50 @@ public sealed class EngineVisuals : IPluginVisuals, IDisposable
             return;
         }
 
+        Interlocked.Increment(ref _markGeneration);
         _renderer.Clear();
         _renderer.Dispose();
     }
 
-    private void DrawRectangle(GroundZone zone, int segments, double durationSeconds)
+    /// <summary>
+    /// Draws one perimeter segment per game tick. Spawning a whole ring of beams in
+    /// a single tick floods a freshly connected client's reliable snapshot buffer
+    /// and disconnects it with an overflow error, so the ring is spread across
+    /// ticks: each posted action draws its one segment and schedules the next.
+    /// </summary>
+    private void SchedulePerimeterSegment(
+        GroundZone zone,
+        int index,
+        int segments,
+        double durationSeconds,
+        int generation,
+        Action<GroundZone, int, int, double> drawSegment)
+    {
+        _dispatcher.Post(() =>
+        {
+            if (Volatile.Read(ref _markGeneration) != generation || _disposed != 0 || !_config().EnableVisualization)
+            {
+                // A newer mark, a Clear or a config change superseded this chain.
+                return;
+            }
+
+            drawSegment(zone, index, segments, durationSeconds);
+
+            var next = index + 1;
+            if (next < segments)
+            {
+                SchedulePerimeterSegment(zone, next, segments, durationSeconds, generation, drawSegment);
+            }
+        });
+    }
+
+    private void DrawRectangleSegment(GroundZone zone, int index, int segments, double durationSeconds)
     {
         var halfWidth = MathF.Max(zone.HalfWidth, 1f);
         var halfHeight = MathF.Max(zone.HalfHeight, 1f);
-        var counter = PointOnRectangle(zone, segments, 0f, halfWidth, halfHeight);
-
-        for (var i = 1; i <= segments; i++)
-        {
-            var next = PointOnRectangle(zone, segments, i / (float)segments, halfWidth, halfHeight);
-            _renderer.DrawBeam(counter, next, durationSeconds);
-            counter = next;
-        }
+        var from = PointOnRectangle(zone, segments, index / (float)segments, halfWidth, halfHeight);
+        var to = PointOnRectangle(zone, segments, (index + 1) / (float)segments, halfWidth, halfHeight);
+        _renderer.DrawBeam(from, to, durationSeconds);
     }
 
     private static Vec3 PointOnRectangle(GroundZone zone, int segments, float t, float halfWidth, float halfHeight)
