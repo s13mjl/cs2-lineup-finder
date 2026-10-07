@@ -241,6 +241,27 @@ Map tracing is unavailable on this server, so crosshair based zones fall back to
 键，把它们逐个补进现有文件。开启 CSSharp 热重载时也可换 DLL 后热载，但涉及反射绑定
 射线 API，稳妥做法仍是重启。
 
+**升级 CS2 服务端本体后必查两处。** SteamCMD 更新 `app 730` 会重置
+`<server>/game/csgo/gameinfo.gi`（丢掉 `Game csgo/addons/metamod` 挂载行），并可能删除
+`addons/metamod/metamod.vdf`。症状是启动后 Metamod/CSSharp 完全不加载。每次更新服务端后
+先检查这两处，缺了就补回：
+
+```
+# gameinfo.gi 的 SearchPaths 块内，Game_LowViolence 一行之后：
+			Game		csgo/addons/metamod
+```
+
+`metamod.vdf`（UTF-8 无 BOM，文件名任意，放 `addons/metamod/` 下即可）：
+
+```
+"Metamod Plugin"
+{
+	"file"	"addons/metamod/bin/win64/metamod.2.cs2"
+}
+```
+
+注意编辑 `gameinfo.gi` 必须以 **UTF-8 无 BOM** 保存，带 BOM 会让 KeyValues 解析整体失败。
+
 改完配置不必重启：进服执行 `!lf_reload`（它必须在玩家会话里跑，服务器控制台执行会被
 拒绝）立刻生效，并在聊天回显当前配置。
 
