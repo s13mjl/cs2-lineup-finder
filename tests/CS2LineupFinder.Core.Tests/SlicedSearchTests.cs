@@ -263,6 +263,73 @@ public class SlicedSearchTests
             $"expected an in-zone hit, got {partial.Results[0].TargetDistance:0.##}u");
     }
 
+    /// <summary>
+    /// The neighbourhood spread is measured from candidates the search already
+    /// simulated: a smooth flat-floor landing must come back with a finite,
+    /// modest spread. The plugin turns spreads above its warning threshold into
+    /// a "verify this one in game" line, which is what shelters players from
+    /// ledge branches that the in-zone distance hides.
+    /// </summary>
+    [Fact]
+    public void SlicedSearch_AnnotatesTheNeighbourhoodSpread()
+    {
+        GrenadeSimulator simulator = new(new PhysicsParameters());
+        LineupSolver solver = new();
+        MockWorldGeometry world = new MockWorldGeometry().AddInfiniteFloor(0f);
+
+        LineupRequest request = new()
+        {
+            MapName = "test",
+            GrenadeType = GrenadeType.He,
+            ThrowMode = ThrowMode.Stand,
+            Button = ThrowButton.Primary,
+            Origin = new ThrowOrigin
+            {
+                Feet = new Vec3(0f, 0f, 0f),
+                Eyes = new Vec3(0f, 0f, 64f),
+                Velocity = Vec3.Zero,
+            },
+            TargetZone = new GroundZone
+            {
+                Type = GroundZoneType.Circle,
+                Center = new Vec3(300f, 0f, 0f),
+                Radius = 12f,
+            },
+            Environment = new SimulationEnvironment
+            {
+                Gravity = 800f,
+                TickInterval = 1f / 64f,
+                MaxSteps = 4096,
+                AirDrag = 0f,
+            },
+            MaxCandidates = 64,
+
+            // The deployed grid: 1 degree of yaw, 1.5 of elevation, so every
+            // interior hit has nudged neighbours inside the spread window.
+            YawStepDegrees = 1.0,
+            ElevationStepDegrees = 1.5,
+        };
+
+        ILineupSearch? search = simulator.BeginLineupSearch(request, solver, world);
+        Assert.NotNull(search);
+
+        SolverOutcome? outcome = null;
+        for (var slice = 0; slice < 500 && outcome is null; slice++)
+        {
+            outcome = search!.Step(8.0);
+        }
+
+        Assert.NotNull(outcome);
+        Assert.Equal(SolverStatus.Success, outcome!.Status);
+
+        float? spread = outcome.Results[0].NeighbourSpread;
+        Assert.NotNull(spread);
+        Assert.True(spread > 0.01f, $"expected a measured spread, got {spread}");
+        Assert.True(
+            spread < 90f,
+            $"a smooth flat-floor landing spread {spread:0.#}u, which should sit below the warning threshold");
+    }
+
     /// <summary>Solver stub emitting exactly one deterministic candidate.</summary>
     private sealed class SingleCandidateSolver : ILineupSolver
     {

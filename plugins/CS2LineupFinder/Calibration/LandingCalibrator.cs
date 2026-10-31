@@ -72,6 +72,20 @@ public sealed class LandingSample
     /// <summary>The projectile's actual launch velocity; see <see cref="LaunchPosition"/>.</summary>
     public Vec3? LaunchVelocity { get; set; }
 
+    /// <summary>
+    /// Post-hoc prediction re-simulated from <see cref="LaunchPosition"/> and
+    /// <see cref="LaunchVelocity"/> at detonation time. Null when the launch
+    /// capture was unusable. <see cref="Error"/> measures the pre-throw
+    /// prediction (what the player was told) against reality; comparing it
+    /// with <see cref="ReplayError"/> splits that miss into "the throw left
+    /// differently than simulated" versus "the physics diverged from the real
+    /// flight".
+    /// </summary>
+    public Vec3? ReplayImpact { get; set; }
+
+    /// <summary>Planar distance between <see cref="ReplayImpact"/> and reality, in units.</summary>
+    public float? ReplayError { get; set; }
+
     /// <summary>Where the game actually detonated the grenade.</summary>
     public Vec3 ActualImpact { get; set; }
 
@@ -97,6 +111,7 @@ public sealed class LandingCalibrator
         PropertyNameCaseInsensitive = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.Never,
         NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+        Converters = { new Vec3JsonConverter() },
     };
 
     private readonly string _directory;
@@ -132,7 +147,8 @@ public sealed class LandingCalibrator
         Vec3? releasePosition = null,
         Vec3? launchPosition = null,
         Vec3? launchVelocity = null,
-        long? suggestionNumber = null)
+        long? suggestionNumber = null,
+        Vec3? replayImpact = null)
     {
         ArgumentNullException.ThrowIfNull(suggestion);
         if (string.IsNullOrEmpty(map))
@@ -143,6 +159,12 @@ public sealed class LandingCalibrator
         float planar = MathF.Sqrt(
             ((suggestion.PredictedImpact.X - actualImpact.X) * (suggestion.PredictedImpact.X - actualImpact.X)) +
             ((suggestion.PredictedImpact.Y - actualImpact.Y) * (suggestion.PredictedImpact.Y - actualImpact.Y)));
+
+        float? replayError = replayImpact is { } replay
+            ? MathF.Sqrt(
+                ((replay.X - actualImpact.X) * (replay.X - actualImpact.X)) +
+                ((replay.Y - actualImpact.Y) * (replay.Y - actualImpact.Y)))
+            : null;
 
         var sample = new LandingSample
         {
@@ -159,6 +181,8 @@ public sealed class LandingCalibrator
             SuggestionNumber = suggestionNumber ?? suggestion.SuggestionNumber,
             LaunchPosition = launchPosition,
             LaunchVelocity = launchVelocity,
+            ReplayImpact = replayImpact,
+            ReplayError = replayError,
             ActualImpact = actualImpact,
             Error = planar,
             RecordedAt = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
@@ -228,6 +252,69 @@ public sealed class LandingCalibrator
     {
         [JsonPropertyName("samples")]
         public List<LandingSample> Samples { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Reads and writes Vec3 as a plain X/Y/Z object. The default serializer
+    /// also emits the struct's computed Length2D/Length/LengthSquared, but on
+    /// read Vec3's read-only properties cannot be populated - every vector in
+    /// a reloaded day file came back as zeros (2026-10-31: samples #1-#3 were
+    /// wiped when the server restarted and the next recording rewrote them).
+    /// </summary>
+    private sealed class Vec3JsonConverter : JsonConverter<Vec3>
+    {
+        public override Vec3 Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType != JsonTokenType.StartObject)
+            {
+                reader.Skip();
+                return Vec3.Zero;
+            }
+
+            float x = 0f;
+            float y = 0f;
+            float z = 0f;
+            while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
+            {
+                if (reader.TokenType != JsonTokenType.PropertyName)
+                {
+                    continue;
+                }
+
+                string name = reader.GetString() ?? string.Empty;
+                reader.Read();
+                if (reader.TokenType != JsonTokenType.Number)
+                {
+                    reader.Skip();
+                    continue;
+                }
+
+                float value = (float)reader.GetDouble();
+                if (name.Equals("X", StringComparison.OrdinalIgnoreCase))
+                {
+                    x = value;
+                }
+                else if (name.Equals("Y", StringComparison.OrdinalIgnoreCase))
+                {
+                    y = value;
+                }
+                else if (name.Equals("Z", StringComparison.OrdinalIgnoreCase))
+                {
+                    z = value;
+                }
+            }
+
+            return new Vec3(x, y, z);
+        }
+
+        public override void Write(Utf8JsonWriter writer, Vec3 value, JsonSerializerOptions options)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("X", value.X);
+            writer.WriteNumber("Y", value.Y);
+            writer.WriteNumber("Z", value.Z);
+            writer.WriteEndObject();
+        }
     }
 }
 

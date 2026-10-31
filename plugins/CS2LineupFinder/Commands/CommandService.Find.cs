@@ -182,6 +182,16 @@ public sealed partial class CommandService
     private const int ProgressReportInterval = 256;
 
     /// <summary>
+    /// Landing spreads above this (units, horizontal) are reported as unstable.
+    /// Recorded calibration runs show smooth trajectories spread up to a few
+    /// tens of units across a nudged-aim window, while ledge branches and
+    /// multi-bounce rollouts spread 120-170u; 90 sits between the populations.
+    /// Advisory only: the suggestion is still shown, the player is told to
+    /// verify it.
+    /// </summary>
+    private const float StabilityWarnUnits = 90f;
+
+    /// <summary>
     /// Advances every active sliced search. Called from the tick handler on the
     /// game thread; finished runs report through the normal chat path and release
     /// the player's search slot.
@@ -400,6 +410,7 @@ public sealed partial class CommandService
                         CommandParser.RoundAngle(solution.Yaw),
                         CommandParser.RoundPlayerPitch(solution.Pitch),
                         solution.TargetDistance);
+                    WarnIfUnstable(playerSlot, i + 1, solution);
                 }
 
                 DrawResult(playerSlot, request, outcome.Results[0]);
@@ -430,6 +441,7 @@ public sealed partial class CommandService
                         CommandParser.RoundAngle(solution.Yaw),
                         CommandParser.RoundPlayerPitch(solution.Pitch),
                         solution.TargetDistance);
+                    WarnIfUnstable(playerSlot, i + 1, solution);
                 }
 
                 if (outcome.Results.Count > 0)
@@ -473,6 +485,21 @@ public sealed partial class CommandService
                     outcome.Status.ToString().ToLowerInvariant(),
                     detail);
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Warns when the evaluated neighbourhood of a suggestion lands far from the
+    /// suggestion itself: a step edge or a multi-bounce rollout can move the real
+    /// landing a whole platform away even though the simulated miss is tiny. The
+    /// spread comes from candidates the search already simulated, so this costs
+    /// no extra engine work.
+    /// </summary>
+    private void WarnIfUnstable(int playerSlot, int rank, LineupSolution solution)
+    {
+        if (solution.NeighbourSpread is { } spread && spread > StabilityWarnUnits)
+        {
+            Reply(playerSlot, Phrases.Id.UnstableAim, rank, spread);
         }
     }
 

@@ -397,6 +397,14 @@ as `Success` (with a budget-expired note), otherwise the closest misses are repo
 `Timeout` results - the angles and the impact marker of the closest landing - so a long
 search that was still narrowing still hands the player an aim point to nudge from.
 
+Reported results also carry `NeighbourSpread`: the largest horizontal distance between the
+landing and the landings of evaluated candidates whose aim sits within 1.5 degrees of yaw
+and 2 degrees of elevation. It costs no simulations - the search already simulated every
+candidate it counts - and the plugin prints a "verify this one in game" note when the spread
+exceeds 90u. Recorded calibration outliers (ledge branches, five-bounce rollouts) show
+120-170u spreads at points whose in-zone distance looked perfect, while smooth landings stay
+in the tens of units. The annotation is advisory; the solver does not re-rank by it.
+
 ---
 
 ## 7. Every default, and why it is that value

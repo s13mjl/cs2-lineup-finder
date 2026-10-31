@@ -235,21 +235,35 @@ physics term. **There is no separate tangential loss term in CS2**: after
 padding, the horizontal ratio is exactly the restitution at every bounce, and
 the padding formula from the leaked source reproduces both first contacts.
 
-#### Embedded clip-brush contacts (R4 + q=1 gate, 2026-10-23)
+The padding term was implemented and enabled on 2026-10-31, when landing
+sample #4 exposed it from the other side: a 58-degree lob hit the floor at
+764 u/s, the engine returned a whole-vector ratio of 0.236, and the unpadded
+model bounced at 0.45, over-rolled 220 u instead of 60 and missed the recorded
+landing by 157 u. Re-reading the leaked
+`basecsgrenade_projectile.cpp :: ResolveFlyCollisionCustom` fixed the two
+details the earlier offline fit had wrong: alongDist is
+`dot(normalize(v_post), trace.plane.normal)` on the **reflected** velocity (not
+the contact fraction inside the tick), and the term is gated on a floor-like
+normal (`plane.normal.z > 0.7`) with a reflected speed above sqrt(96000).
+Under those gates the padded model predicts telemetry-002's first contact at
+0.3357 against 0.3367 measured and sample #4's at 0.2392 against 0.236
+(`BouncePaddingTests`).
 
-A contact that begins embedded in a PlayerClip/NpcClip/StaticLevel brush
-(engine IsAllSolid=1, measured with the live tracer) is additionally scaled by
-ClipEmbeddedElasticityScale = 0.7476252 (= 0.336431361 / 0.45, 7-digit
-agreement on both tangential components of telemetry-002 row 8), **iff the
-contact lands in the FIRST half of its tick (q=1) and the post-restitution
-reflected speed exceeds EmbeddedScaleSpeedThreshold = sqrt(96000) ~ 309.8387
-u/s**. The constant is the speed threshold of ResolveFlyCollisionCustom in the
-CS:GO leak (basecsg.cpp); its ROLE as the gate for the embedded scale is a
-hypothesis confirmed by live replay, not by the leak itself. The q=1 gate was
-added after the palace counterexample below.
+#### Embedded clip-brush contacts - RETIRED 2026-10-31
 
-Decision table over every embedded contact captured so far (reflected speed is
-0.45 times the incident speed; a mirror preserves length):
+The earlier embedded-scale rule (R4 + q=1 gate, 0.7476252 on contacts that
+begin embedded in clip brushes) is retired. Its only fitted contact -
+telemetry-002 row 8 - is the same contact the bounce padding explains: its
+reflected velocity leaves the floor at alongDist 0.754, so padding predicts
+0.3357 against 0.3367 measured, and the leaked ResolveFlyCollisionCustom has
+no embedded-geometry term at all. The 0.7476 scale was within 0.2% of the
+padding factor at that one contact, and the old q=1 gate approximated the
+padding's floor and alongDist gates on every other captured contact (including
+the 1015 palace sample, whose contact is a steep face and therefore never
+pads). `ClipEmbeddedElasticityScale` now ships at 1.0; the fields stay as a
+calibration A/B seam.
+
+Historical decision table that the retired rule was fitted to:
 
 | Capture | Row | embedded | q | reflected speed | engine eH | verdict |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -266,11 +280,14 @@ of its flight, incident speed 342.0 u/s, yet the engine records 0.4499998 -
 because the post-restitution speed 0.45 x 342.0 = 153.9 falls below the
 threshold. R2 over-scaled that contact and produced the 40.77 u live-replay
 gap at tick 128. R4 (speed only) then over-scaled the 1015 palace contact:
-the engine kept 0.46 because that contact is q=2, while R4 reduced it to
-0.336 and left the simulated grenade on the palace lower shelf. The live
-calibration replay fell from 132.8 u to **1.8 u** (1014: 75.9 -> 4.6 u, mean
-30.8 -> 5.5 u) once q=1 was required. Both telemetry tick replays remain
-0.019 / 0.023 u, and the synthetic T2/T1/R4 tests pin the gate (<c>EmbeddedScaleRuleTests</c>).
+the engine kept 0.46 because that contact is a steep palace face, while R4
+reduced it to 0.336 and left the simulated grenade on the palace lower shelf.
+The live calibration replay fell from 132.8 u to **1.8 u** (1014: 75.9 ->
+4.6 u, mean 30.8 -> 5.5 u) once the extra scaling was gated off. As of
+2026-10-31 the whole embedded-scale mechanism is retired in favour of the
+bounce padding, whose floor and alongDist gates exclude that palace face the
+same way; both telemetry tick replays remain 0.019 / 0.023 u and
+`BouncePaddingTests` now pins the physics.
 
 Sampling incident (2026-10-15, resolved): both captures recorded every state
 twice because OnTick fired twice per engine tick (742 raw rows = 2 x 370 real

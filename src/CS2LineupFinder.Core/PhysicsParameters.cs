@@ -65,67 +65,47 @@ public sealed partial class PhysicsParameters
         "1.0 = world surface; CS2 telemetry 2026-10-15 telemetry-002 first contact measured 0.3347/0.45 = 0.7439 for the non-world surface it struck, fitted to 0.00000 error");
 
     /// <summary>
-    /// Multiplier on <see cref="Restitution"/> for contacts that begin embedded
-    /// in solid world geometry (engine IsAllSolid=1 with clip content bits).
-    /// MEASURED: telemetry-002 contact 8 (CSV row 8) is the only one of 12
-    /// captured contacts whose tangential ratio is not 0.45 - both horizontal
-    /// components return 0.336431361 (7-digit agreement), and the tracer shows
-    /// the tick start embedded in a PlayerClip+NpcClip+StaticLevel brush
-    /// (IsAllSolid=1, Fraction=0). The impact POINT itself is the plane floor
-    /// beneath the brush (parabolic contact fit lands on z=-189.9668 vs face
-    /// -189.9688, 0.002u), so the position stays; only the elasticity changes.
-    /// 0.7476252 = 0.336431361 / 0.45. The ratio does not appear in the
-    /// official surface property table (vsurf_data.txt, 164 entries checked),
-    /// so it is recorded as an engine-internal embedded-contact rule.
+    /// Multiplier on <see cref="Restitution"/> for embedded clip-brush contacts.
+    /// RETIRED (2026-10-31): kept at 1.0 as a calibration A/B seam. The
+    /// 0.7476252 value was fitted to telemetry-002 contact 8, but that contact
+    /// is explained by the engine's bounce padding instead - its reflected
+    /// velocity leaves the floor at alongDist 0.754, so padding predicts 0.3357
+    /// against 0.3367 measured - and the leaked ResolveFlyCollisionCustom has
+    /// no embedded term. The old q=1 gate also approximated the padding's
+    /// floor and alongDist gates on every other captured contact.
     /// </summary>
     public PhysicsParameter ClipEmbeddedElasticityScale { get; set; } = new(
-        "ClipEmbeddedElasticityScale", 0.7476252f, 0.5f, 1.0f, SourceTier.Measured,
-        "telemetry-002 contact 8 embedded clip-brush bounce: tangential ratio 0.336431361 on both components (7-digit agreement), tracer IsAllSolid=1 with PlayerClip+NpcClip+StaticLevel at the tick start, ratio to base elasticity 0.336431361/0.45 = 0.7476; not in official surfaceproperties (vsurf_data.txt 164 entries)");
+        "ClipEmbeddedElasticityScale", 1f, 0.5f, 1.0f, SourceTier.Measured,
+        "1.0 = retired: the 0.7476 embedded-clip scale was a coincidental fit to telemetry-002 contact 8, now reproduced by bounce padding (alongDist 0.754 -> 0.3357 vs 0.3367 measured)");
 
     /// <summary>
-    /// Minimum post-restitution reflected speed (u/s) for an embedded contact
-    /// to receive <see cref="ClipEmbeddedElasticityScale"/>. R4 rule plus the
-    /// 2026-10-23 first-half gate: the reduced elasticity applies if and only
-    /// if the contact begins embedded, lands in the FIRST half of its tick
-    /// (q=1), AND the reflected speed exceeds this threshold. Evidence across
-    /// all captured embedded contacts: telemetry-002 row 8 (embedded, q=1,
-    /// 317.9 u/s -> scaled 0.3364314) versus telemetry-001 row 128 (embedded
-    /// FIRST contact, 152.6 u/s -> engine records 0.4499998, NOT scaled) and
-    /// telemetry-002 rows 97/136/154 (embedded, 101.6/46.6/21.5 u/s -> all
-    /// 0.45). The q gate was forced by the 1015 palace sample: its embedded
-    /// first contact is q=2 (fraction 0.758) and the engine kept 0.46
-    /// (762.5 -> 344.2 u/s), while R4 alone scaled it to 0.336 and left the
-    /// simulated grenade on the lower shelf, a 132.8 u live replay miss. With
-    /// the q=1 gate the same live replay is 1.8 u and the eight-sample mean
-    /// drops from 30.8 u to 5.5 u.
-    /// The constant is the speed threshold of ResolveFlyCollisionCustom in the
-    /// CS:GO leak (basecsg.cpp, sqrt(96000) ~= 309.8387); its ROLE as the gate
-    /// for the embedded elasticity scale is a hypothesis that fits every
-    /// measured contact and is confirmed by live replay, not by the leak.
-    /// A mirror preserves speed, so the post-restitution speed is
-    /// Restitution x |inputVelocity|; the leak's speed test runs on the
-    /// reflected vector, not the incident one.
+    /// Reflected-speed threshold of ResolveFlyCollisionCustom in the leaked
+    /// CS:GO source: sqrt(96000) ~= 309.8387 u/s. It gates the bounce padding
+    /// on fast floor contacts (a mirror preserves speed, so the reflected
+    /// speed is Restitution x |inputVelocity| and no mirror arithmetic is
+    /// needed). The name is historical - the parameter once gated the retired
+    /// embedded-clip scale.
     /// </summary>
     public PhysicsParameter EmbeddedScaleSpeedThreshold { get; set; } = new(
         "EmbeddedScaleSpeedThreshold", 309.8387f, 100f, 500f, SourceTier.Leaked,
-        "sqrt(96000) from CS:GO leaked basecsg.cpp ResolveFlyCollisionCustom speed threshold; role as embedded-elasticity gate is a hypothesis confirmed by live replay of telemetry-001/002 (R4, 2026-10-19)");
-
+        "sqrt(96000) from CS:GO leaked ResolveFlyCollisionCustom: reflected speeds above this gate the bounce padding on fast floor contacts");
 
     /// <summary>
-    /// Engine bounce padding (ResolveFlyCollisionCustom): a floor bounce that
-    /// comes off fast AND steep was thought to lose an extra (1.5 - alongDist)
-    /// factor. DISABLED: the CS2 telemetry does not support it. telemetry-002
-    /// first contact satisfies both trigger conditions (post-bounce speed
-    /// 344 u/s > 310, alongDist 0.7279 > 0.5), which predicts a 0.772 multiplier
-    /// and a post-bounce speed of 266 u/s; the recorded speed is 235.79 u/s,
-    /// i.e. a ratio of 0.3347 that the plain whole-vector law with the measured
-    /// surface elasticity already reproduces exactly. Adding padding on top
-    /// double-counts the loss, so the term stays off unless a capture shows a
-    /// contact the plain law cannot fit.
+    /// Engine bounce padding, ResolveFlyCollisionCustom: a floor contact whose
+    /// reflected speed exceeds sqrt(96000) and whose reflected velocity leaves
+    /// the floor at alongDist = dot(normalize(v_post), n) &gt; 0.5 is scaled by
+    /// (1 - alongDist) + 0.5 on top of the restitution. ENABLED 2026-10-31:
+    /// telemetry-012 (landing sample #4) records a 764 u/s floor impact with
+    /// alongDist 0.9685 and a measured whole-vector ratio of 0.236; the padded
+    /// law predicts 0.2392, the unpadded 0.45 over-rolled it by 160 u.
+    /// telemetry-002's first contact (measured 0.3367) predicts 0.3357 the
+    /// same way, so the term does not double-count the old embedded-scale
+    /// story - alongDist is the reflected velocity's alignment with the floor
+    /// normal, not the contact fraction inside the tick.
     /// </summary>
     public PhysicsParameter BouncePaddingEnabled { get; set; } = new(
-        "BouncePaddingEnabled", 0f, 0f, 1f, SourceTier.Valve,
-        "off: CS2 telemetry 2026-10-15 telemetry-002 first contact triggers the leak's padding conditions yet is fitted exactly by the plain whole-vector law, so the term double-counts; kept toggleable for A/B replay");
+        "BouncePaddingEnabled", 1f, 0f, 1f, SourceTier.Valve,
+        "1 = on: leaked ResolveFlyCollisionCustom pads fast floor bounces by (1 - alongDist) + 0.5; telemetry-012 first contact measured 0.236 vs 0.2392 predicted, telemetry-002 first contact measured 0.3367 vs 0.3357");
 
     /// <summary>
     /// Exponential decay rate of tangential speed while in floor contact, 1/s.

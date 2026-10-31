@@ -62,24 +62,20 @@ public readonly struct BounceResult
 /// contact normal for non-floor surfaces as an extrapolation: no wall contact
 /// has been captured yet.
 ///
-/// One contact in telemetry-002 (contact 8) returns 0.3364 on both tangential
-/// components instead of 0.45. That contact begins EMBEDDED in a
-/// PlayerClip+NpcClip+StaticLevel brush (engine IsAllSolid=1, Fraction=0 -
-/// measured with the live tracer); the impact point itself is still the plane
-/// floor under the brush, so the bounce law is unchanged and only the
-/// elasticity is scaled, by the measured
-/// <see cref="PhysicsParameters.ClipEmbeddedElasticityScale"/>. R4 gate plus
-/// the 2026-10-23 first-half gate: the scale applies if and only if the
-/// contact begins embedded, lands in the FIRST half of its tick (q=1), AND
-/// the post-restitution reflected speed exceeds
-/// <see cref="PhysicsParameters.EmbeddedScaleSpeedThreshold"/> - an earlier
-/// "first embedded contact only" rule was falsified by telemetry-001 row 128,
-/// where the FIRST embedded contact of the flight (152.6 u/s) is NOT scaled.
-/// The q gate was forced by the 1015 palace replay: its embedded first
-/// contact is q=2 and the engine kept 0.46 (762.5 -> 344.2 u/s), while the
-/// speed-only rule scaled it and produced a 132.8 u miss; with the q gate the
-/// live replay is 1.8 u. Detection is wired in GameWorldTracer, which reads
-/// the engine's IsAllSolid flag; GrenadeSimulator owns the q and speed gates.
+/// BOUNCE PADDING (2026-10-31, from the leaked
+/// <c>basecsgrenade_projectile.cpp :: ResolveFlyCollisionCustom</c>): when the
+/// contact is floor-like (normal.z > 0.7), the reflected speed exceeds
+/// sqrt(96000) (~310 u/s), and the reflected velocity leaves the floor at
+/// alongDist = dot(normalize(v_post), n) > 0.5, the engine scales the WHOLE
+/// reflected vector by <c>(1 - alongDist) + 0.5</c>. This is the rule that
+/// explains the sub-0.45 first bounces: telemetry-002's first contact
+/// (alongDist 0.754) predicts 0.3357 against 0.3367 measured, and the
+/// 2026-10-31 landing sample #4 (yaw -163, pitch 71.8, 764 u/s impact,
+/// alongDist 0.9685) predicts 0.2392 against 0.236 measured - the model
+/// without padding bounced it at 0.45, rolled 220 u instead of 60, and missed
+/// the recorded landing by 157 u. The earlier "embedded clip-brush scale" was
+/// a coincidental fit to the same telemetry-002 contact (0.7476 ~ the padding
+/// factor 0.746 there) and has been retired.
 /// </summary>
 public static class BounceResolver
 {
@@ -97,19 +93,31 @@ public static class BounceResolver
         bool onGround,
         GrenadeType type,
         PhysicsParameters parameters,
-        ref bool firstSmokeBounceDone,
-        bool embeddedContact = false)
+        ref bool firstSmokeBounceDone)
     {
         float restitution = parameters.Restitution.Value;
-        if (embeddedContact)
-        {
-            restitution *= parameters.ClipEmbeddedElasticityScale.Value;
-        }
 
         // Mirror about the normal (PhysicsClipVelocity), scale the WHOLE vector
         // by the effective elasticity, then add the measured residual impulse
         // along the normal.
         Vec3 reflected = (velocity - (normal * (2f * Vec3.Dot(velocity, normal)))) * restitution;
+
+        // ResolveFlyCollisionCustom bounce padding: a fast floor contact is
+        // scaled again by how squarely the reflected velocity leaves the floor.
+        // The engine gates it on a floor-like normal (z > 0.7) and a reflected
+        // speed above sqrt(96000); wall contacts never pad.
+        if (parameters.BouncePaddingEnabled.Value > 0.5f
+            && normal.Z > 0.7f
+            && reflected.LengthSquared
+                > parameters.EmbeddedScaleSpeedThreshold.Value * parameters.EmbeddedScaleSpeedThreshold.Value)
+        {
+            float alongDist = Vec3.Dot(reflected.Normalized(), normal);
+            if (alongDist > 0.5f)
+            {
+                reflected *= (1.5f - alongDist);
+            }
+        }
+
         reflected += normal * parameters.BounceNormalResidual.Value;
 
         if (!onGround)

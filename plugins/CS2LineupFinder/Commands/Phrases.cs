@@ -81,6 +81,7 @@ public static class Phrases
         /* 66 */ "Search progress: {0} candidates simulated.",
         /* 67 */ "Searching with a {0:0.##}s budget; progress prints every {1} candidates.",
         /* 68 */ "The search budget expired after {0:0.0}s; the line-ups found so far follow.",
+        /* 69 */ "Note: aims next to #{0} land up to {1:0}u apart; test this one in game (ledge or bounce).",
     };
 
     private static readonly string[] Zh =
@@ -154,6 +155,7 @@ public static class Phrases
         /* 66 */ "搜索进度：已模拟 {0} 个候选。",
         /* 67 */ "本次搜索预算 {0:0.##} 秒；每 {1} 个候选播报一次进度。",
         /* 68 */ "搜索预算在 {0:0.0} 秒时到期，以下是已找到的结果。",
+        /* 69 */ "注意：#{0} 号瞄点的邻近角度落点最多相差 {1:0}u（可能涉及台沿或多次弹跳），建议进服实测确认。",
     };
 
     /// <summary>Index of the message wrapped with the plugin prefix.</summary>
@@ -363,6 +365,9 @@ public static class Phrases
 
         /// <summary>A search was cut off by the wall clock with results banked.</summary>
         public const int SearchBudgetExpired = 68;
+
+        /// <summary>A reported aim sits next to a branchy landing.</summary>
+        public const int UnstableAim = 69;
     }
 
     /// <summary>Formats a message for the configured language.</summary>

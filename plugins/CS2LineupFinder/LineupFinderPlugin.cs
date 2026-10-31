@@ -235,6 +235,32 @@ namespace CS2LineupFinder.Plugin;
             _calibrationLaunchTickMs = 0;
             _calibrationLaunchSuggestionNumber = 0;
 
+            // Re-simulate the flight from the captured launch state so the
+            // sample records the model's own error separately from the
+            // pre-throw prediction: Error is what the player was promised, the
+            // replay error is what the physics produced from the throw that
+            // actually left the hand. One simulation on the game thread, at a
+            // point where no search is ticking that tick.
+            Vec3? replayImpact = null;
+            if (launchPosition is { } replayFrom
+                && launchVelocity is { } replayVelocity
+                && !services.Simulator.UsingStub
+                && GameWorldGeometry.CanTrace(services.World))
+            {
+                try
+                {
+                    services.World.ResetBudget();
+                    TrajectoryResult replay = services.Simulator.Simulator.Simulate(
+                        new ThrowParams(replayFrom, replayVelocity, GrenadeType.Smoke, 1f, 64),
+                        services.World);
+                    replayImpact = replay.Impact.Position;
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning("CS2LineupFinder: launch replay failed: {Message}", ex.Message);
+                }
+            }
+
             // Continue the day-file numbering across restarts: the calibrator
             // pre-loads today's samples, so the next index is Count + 1.
             int index = services.Landings.Count + 1;
@@ -248,7 +274,8 @@ namespace CS2LineupFinder.Plugin;
                 pending.ReleasePosition,
                 launchPosition,
                 launchVelocity,
-                pending.SuggestionNumber);
+                pending.SuggestionNumber,
+                replayImpact);
  
             if (sample is not null)
             {

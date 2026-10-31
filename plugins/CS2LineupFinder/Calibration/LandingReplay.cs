@@ -63,6 +63,12 @@ public sealed class LandingSampleDto
     /// <summary>The projectile's actual launch velocity (new files only).</summary>
     public Vec3Dto? LaunchVelocity { get; set; }
 
+    /// <summary>Prediction re-simulated from the captured launch state (new files only).</summary>
+    public Vec3Dto? ReplayImpact { get; set; }
+
+    /// <summary>Planar error of that replay against reality (new files only).</summary>
+    public float? ReplayError { get; set; }
+
     /// <summary>Environment.TickCount64 (ms) at which the suggestion was recorded; used to pair the capture.</summary>
     public long SuggestedTickMs { get; set; }
 

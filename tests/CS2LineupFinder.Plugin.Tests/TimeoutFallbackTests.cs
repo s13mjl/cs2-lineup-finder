@@ -97,6 +97,43 @@ public sealed class TimeoutFallbackTests
         Assert.Contains(harness.Messages.Lines, line => line.Contains("line-up(s) in", StringComparison.Ordinal));
         Assert.Contains(harness.Messages.Lines, line => line.Contains("budget expired after", StringComparison.Ordinal));
         Assert.Single(harness.Visuals.Beams);
+
+        // No neighbourhood data means no stability claim either way.
+        Assert.DoesNotContain(harness.Messages.Lines, line => line.Contains("land up to", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task UnstableAim_WarnsWhenNeighbouringAimsLandFarAway()
+    {
+        using var harness = new Harness(TinyTimeoutConfig);
+        var session = harness.PrepareSession();
+
+        // Recorded calibration outliers show 120-170u spreads where a step edge
+        // or a multi-bounce rollout decides the landing; the in-zone distance
+        // alone would advertise such an aim as perfect.
+        var hit = new LineupSolution
+        {
+            Yaw = 21.5f,
+            Pitch = -8.5f,
+            ReleasePosition = new Vec3(0f, 0f, 64f),
+            ImpactPosition = new Vec3(498f, 3f, 0f),
+            TargetDistance = 2.2f,
+            NeighbourSpread = 148f,
+        };
+        harness.Bridge.UseCoreSimulator(new NeverFinishingSimulator(hit, inZone: true));
+
+        var outcome = await harness.Service.FindAsync(Harness.Slot, harness.World);
+        Assert.Null(outcome);
+
+        for (var tick = 0; tick < 100 && session.LastOutcome is null; tick++)
+        {
+            harness.Service.TickSearches();
+            await Task.Delay(10);
+        }
+
+        Assert.NotNull(session.LastOutcome);
+        Assert.Contains(harness.Messages.Lines, line => line.Contains("#1", StringComparison.Ordinal));
+        Assert.Contains(harness.Messages.Lines, line => line.Contains("land up to 148u apart", StringComparison.Ordinal));
     }
 
     /// <summary>

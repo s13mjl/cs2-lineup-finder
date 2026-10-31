@@ -87,6 +87,16 @@ public sealed record LineupSolution
     /// <summary>Distance from the target zone centre in units, smaller is better.</summary>
     public required float TargetDistance { get; init; }
 
+    /// <summary>
+    /// Largest horizontal distance, in units, between this landing and the
+    /// landings of evaluated candidates within a small angle window around it.
+    /// Large values mean a nearby aim change lands somewhere else entirely - a
+    /// ledge branch or a multi-bounce rollout - so the prediction is less
+    /// trustworthy than its in-zone distance suggests. Null when the search has
+    /// no neighbourhood data.
+    /// </summary>
+    public float? NeighbourSpread { get; init; }
+
     /// <summary>Number of simulation steps consumed, useful for profiling.</summary>
     public int Steps { get; init; }
 

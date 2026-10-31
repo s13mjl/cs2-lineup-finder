@@ -118,8 +118,12 @@ public class BounceEnergyTests
                     float ratio = verticalOut / verticalIn;
 
                     // 0.45 restitution, allowing for the substep quantisation of
-                    // the sample grid and the rolling friction that follows.
-                    Assert.InRange(ratio, 0.30f, 0.50f);
+                    // the sample grid and the rolling friction that follows. The
+                    // upper bound reaches past 0.45 because a second-half contact
+                    // reflects the tick-boundary speed plus the +2.264 u/s
+                    // q-residual (see BounceResolver), which inflates the ratio
+                    // of a slow final bounce.
+                    Assert.InRange(ratio, 0.30f, 0.60f);
                 }
 
                 previous = after;

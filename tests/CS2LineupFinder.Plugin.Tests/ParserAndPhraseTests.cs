@@ -305,7 +305,7 @@ public sealed class ParserAndPhraseTests
         Assert.NotEmpty(ids);
         foreach (var (name, value) in ids)
         {
-            Assert.InRange(value, 1, Phrases.Id.SearchBudgetExpired);
+            Assert.InRange(value, 1, Phrases.Id.UnstableAim);
             Assert.False(string.IsNullOrWhiteSpace(Phrases.Get("en", value)), $"English entry for {name} is empty.");
             Assert.False(string.IsNullOrWhiteSpace(Phrases.Get("zh-CN", value)), $"Chinese entry for {name} is empty.");
         }

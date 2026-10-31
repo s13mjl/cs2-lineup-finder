@@ -209,33 +209,12 @@ public sealed partial class GrenadeSimulator : ITrajectorySimulator
 
                 float q = hit.Fraction <= 0.5f ? 1f : 2f;
                 Vec3 inputVelocity = velocity + new Vec3(0f, 0f, -q * quantum);
-                // R4 embedded-scale gate (2026-10-19): the reduced elasticity
-                // applies if and only if the contact begins embedded AND the
-                // POST-RESTITUTION reflected speed exceeds
-                // EmbeddedScaleSpeedThreshold (sqrt(96000), CS:GO leak
-                // ResolveFlyCollisionCustom, whose speed test runs on the
-                // reflected vector). The "first embedded contact only" rule
-                // (R2) is FALSIFIED by telemetry-001 row 128: vIn
-                // (-288.611,-103.256,-151.7133) has |vIn| = 342.0 > 310 yet
-                // the engine records eH = 0.4499998 - NOT scaled, because
-                // 0.45 x 342.0 = 153.9 < 310. telemetry-002 row 8 IS scaled:
-                // 0.45 x 706.4 = 317.9 > 310. A mirror preserves length, so
-                // the post-restitution speed is Restitution x |inputVelocity|
-                // and no mirror arithmetic is needed.
-                // First-half contacts only. The 1015 palace throw's embedded
-                // first contact is a second-half (q=2, fraction 0.758) contact
-                // and the engine keeps the plain 0.45 there: measured
-                // 762.5 -> 344.2 u/s (0.46). Applying R4 to it dropped the
-                // simulated post speed to ~254 u/s and left the grenade on the
-                // palace lower shelf, 132.8 u short. The one scaled telemetry
-                // contact (telemetry-002 row 8) is a first-half contact whose
-                // input already carries the single q=1 quantum.
-                bool scaleEmbedded = hit.IsEmbedded
-                    && q == 1f
-                    && _parameters.Restitution.Value * inputVelocity.Length
-                        > _parameters.EmbeddedScaleSpeedThreshold.Value;
+                // Bounce padding (ResolveFlyCollisionCustom) is applied inside
+                // the resolver: a fast floor contact is scaled by how squarely
+                // the reflected velocity leaves the floor. The embedded-clip
+                // scale this replaced was a coincidental fit to one contact.
                 velocity = BounceResolver.Resolve(
-                    inputVelocity, normal, false, parameters.GrenadeType, _parameters, ref smokeFirstBounceDone, scaleEmbedded);
+                    inputVelocity, normal, false, parameters.GrenadeType, _parameters, ref smokeFirstBounceDone);
                 position = hit.Position;
                 bounceCount++;
                 _contacts.Add(new SimulationContact(
@@ -291,18 +270,13 @@ public sealed partial class GrenadeSimulator : ITrajectorySimulator
                         IsPush: true));
                     if (pushNormal.Z <= _parameters.FloorNormalThreshold.Value)
                     {
-                        bool scalePush = pushHit.IsEmbedded
-                            && q == 1f
-                            && _parameters.Restitution.Value * velocity.Length
-                                > _parameters.EmbeddedScaleSpeedThreshold.Value;
                         velocity = BounceResolver.Resolve(
                             velocity,
                             pushNormal,
                             false,
                             parameters.GrenadeType,
                             _parameters,
-                            ref smokeFirstBounceDone,
-                            scalePush);
+                            ref smokeFirstBounceDone);
                         float unspent = remaining * (1f - pushHit.Fraction);
                         position = pushHit.Position + (velocity * unspent);
                     }
@@ -866,6 +840,7 @@ public sealed partial class GrenadeSimulator : ITrajectorySimulator
             if (_hits.Count > 0)
             {
                 _hits.Sort(static (a, b) => a.TargetDistance.CompareTo(b.TargetDistance));
+                AnnotateNeighbourSpread(_hits);
                 return SolverOutcome.Success(_hits, _stopwatch.Elapsed);
             }
 
@@ -874,6 +849,8 @@ public sealed partial class GrenadeSimulator : ITrajectorySimulator
             {
                 _fallback.RemoveRange(MaxFallbackResults, _fallback.Count - MaxFallbackResults);
             }
+
+            AnnotateNeighbourSpread(_fallback);
 
             string message = _evaluated == 0
                 ? "The inverse solver produced no candidates."
@@ -895,6 +872,76 @@ public sealed partial class GrenadeSimulator : ITrajectorySimulator
                 Elapsed = _stopwatch.Elapsed,
                 Message = message,
             };
+        }
+
+        /// <summary>Angular window that counts as "the same aim, nudged".</summary>
+        private const float NeighbourYawWindowDegrees = 1.5f;
+
+        /// <summary>Elevation counterpart of <see cref="NeighbourYawWindowDegrees"/>.</summary>
+        private const float NeighbourPitchWindowDegrees = 2f;
+
+        /// <summary>
+        /// Stamps the reported results with how far their nearest evaluated
+        /// neighbours land. Branchy landings - a step edge, a multi-bounce
+        /// rollout - put neighbours a platform away while the in-zone distance
+        /// still looks perfect, so the host can warn before the player throws.
+        /// Costs no simulations: every evaluated candidate is already in the
+        /// hit and miss pools.
+        /// </summary>
+        private void AnnotateNeighbourSpread(List<LineupSolution> ranked)
+        {
+            int limit = Math.Min(ranked.Count, MaxFallbackResults);
+            for (var i = 0; i < limit; i++)
+            {
+                if (NeighbourSpread(ranked[i]) is { } spread)
+                {
+                    ranked[i] = ranked[i] with { NeighbourSpread = spread };
+                }
+            }
+        }
+
+        private float? NeighbourSpread(LineupSolution target)
+        {
+            float? spread = null;
+            int neighbours = 0;
+            for (var pass = 0; pass < 2; pass++)
+            {
+                List<LineupSolution> pool = pass == 0 ? _hits : _fallback;
+                foreach (LineupSolution other in pool)
+                {
+                    if (ReferenceEquals(other, target))
+                    {
+                        continue;
+                    }
+
+                    float yawGap = MathF.Abs(MathF.IEEERemainder(other.Yaw - target.Yaw, 360f));
+                    float pitchGap = MathF.Abs(other.Pitch - target.Pitch);
+
+                    // A re-evaluation of the very same aim carries no stability
+                    // information; only genuinely nudged aims do.
+                    if (yawGap < 0.01f && pitchGap < 0.01f)
+                    {
+                        continue;
+                    }
+
+                    if (yawGap > NeighbourYawWindowDegrees || pitchGap > NeighbourPitchWindowDegrees)
+                    {
+                        continue;
+                    }
+
+                    neighbours++;
+                    float dx = other.ImpactPosition.X - target.ImpactPosition.X;
+                    float dy = other.ImpactPosition.Y - target.ImpactPosition.Y;
+                    float distance = MathF.Sqrt((dx * dx) + (dy * dy));
+                    if (spread is null || distance > spread.Value)
+                    {
+                        spread = distance;
+                    }
+                }
+            }
+
+            // One neighbour is the edge of the grid, not a stability reading.
+            return neighbours >= 2 ? spread : null;
         }
 
         /// <summary>
