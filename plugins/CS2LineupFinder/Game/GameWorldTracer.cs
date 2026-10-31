@@ -28,7 +28,20 @@ public sealed class GameWorldTracer
     private readonly ITraceBackend _backend;
     private readonly Func<PluginConfig>? _config;
 
+    /// <summary>
+    /// Sweeps issued since the last reset. Every search runs on its own thread,
+    /// and the crosshair probe runs on the game thread, so the counter is shared
+    /// across threads and must be maintained with interlocked operations.
+    /// </summary>
     private int _sweeps;
+
+    /// <summary>
+    /// Set once a sweep has been rejected for exceeding the budget, cleared by
+    /// <see cref="ResetBudget"/>. A search that keeps simulating past this point
+    /// flies blind - every sweep reports a miss - so its results are garbage and
+    /// callers use this flag to abort instead.
+    /// </summary>
+    private volatile bool _budgetExhausted;
 
     /// <summary>Creates a tracer.</summary>
     /// <param name="backend">Engine binding used for every sweep.</param>
@@ -47,10 +60,34 @@ public sealed class GameWorldTracer
     public string BackendName => _backend.Name;
 
     /// <summary>Sweeps issued since the last reset, for diagnostics and tests.</summary>
-    public int SweepsUsed => _sweeps;
+    public int SweepsUsed => Interlocked.CompareExchange(ref _sweeps, 0, 0);
 
     /// <summary>Refills the sweep budget. Called once per search.</summary>
-    public void ResetBudget() => _sweeps = 0;
+    public void ResetBudget()
+    {
+        Interlocked.Exchange(ref _sweeps, 0);
+        _budgetExhausted = false;
+    }
+
+    /// <summary>Whether a sweep has already been rejected for exceeding the budget.</summary>
+    public bool BudgetExhausted => _budgetExhausted;
+
+    /// <summary>
+    /// Optional sink for the diagnostic meter, wired to the plugin logger by the
+    /// host. Null leaves logging off, which keeps the test doubles silent.
+    /// </summary>
+    public Action<string>? Log { get; init; }
+
+    /// <summary>
+    /// Writes the meter to the plugin log. Diagnostic only: the counter keeps its
+    /// value, so this can be called at any point without disturbing a search.
+    /// </summary>
+    /// <param name="context">Short label of the code path calling this.</param>
+    public void LogSweeps(string context)
+        => Log?.Invoke(
+            string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"sweeps used ({context}): {SweepsUsed} via {_backend.Name}"));
 
     /// <summary>Runs one sweep, stepping past entities a grenade flies through.</summary>
     /// <param name="origin">Sweep start in world units.</param>
@@ -77,10 +114,11 @@ public sealed class GameWorldTracer
         }
 
         var budget = _config is null ? int.MaxValue : _config().MaxTracesPerSolve;
-        if (++_sweeps > budget)
+        if (Interlocked.Increment(ref _sweeps) > budget)
         {
             // Out of budget: report a miss so the integration stops here rather than
             // letting a search continue on data it cannot trust.
+            _budgetExhausted = true;
             return Miss(origin, maxDistance, unit);
         }
 
@@ -96,8 +134,13 @@ public sealed class GameWorldTracer
             }
 
             var from = origin + (unit * advanced);
+            // The end point is the caller's, not the resume point's: `from` walks
+            // forward past ignored entities while `to` stays put, so each attempt
+            // covers exactly the segment the caller asked for.
             var to = origin + (unit * maxDistance);
-            var sample = _backend.Trace(from, to, MathF.Max(radius, 0f), ignore);
+            var sample = _backend.SupportsMaskedTrace
+                ? _backend.Trace(from, to, MathF.Max(radius, 0f), ignore, GrenadeCollisionMasks.InteractWith, GrenadeCollisionMasks.InteractExclude)
+                : _backend.Trace(from, to, MathF.Max(radius, 0f), ignore);
             if (!sample.DidHit)
             {
                 return Miss(origin, maxDistance, unit);
@@ -106,6 +149,43 @@ public sealed class GameWorldTracer
             var hit = sample.ToTraceHit();
             if (keep(hit.ClassName) || hit.EntityIndex < 0 || steppedPast.Contains(hit.EntityIndex))
             {
+                // Embedded-start detection: the engine reports IsAllSolid=1 when
+                // the sweep began inside solid world geometry. Measured on the
+                // live server (2026-10-19 DivergenceProbe log 09:48:18, probe A):
+                // a grenade hull that starts inside a 1-2u PlayerClip+NpcClip
+                // brush over the floor comes back IsAllSolid=1, Fraction=0,
+                // Contents=PlayerClip|NpcClip|StaticLevel, while every normal
+                // contact reports IsAllSolid=0. The main sweep above runs with
+                // the clip layers excluded, so re-probe the same segment with
+                // the default mask (no exclusion) to recover that flag. The
+                // clip bits are required: a resting grenade's hull centre sits
+                // exactly ON the plane floor, which also reports IsAllSolid=1
+                // but with Contents=StaticLevel only (probe "F" rows in the
+                // same log), so IsAllSolid alone would false-positive every
+                // rest contact. The probe is not counted against the sweep
+                // budget: it is one diagnostic read per kept contact, and
+                // letting it flip _budgetExhausted would abort searches that
+                // just completed a legal sweep.
+                if (_backend.SupportsMaskedTrace)
+                {
+                    TraceSample embeddedProbe = _backend.Trace(from, to, MathF.Max(radius, 0f), ignore);
+                    if (embeddedProbe.IsEmbedded
+                        && (embeddedProbe.ContentsRaw & GrenadeCollisionMasks.ClipBits) != 0)
+                    {
+                        return new TraceHit(
+                            hit.DidHit,
+                            hit.Position,
+                            hit.Normal,
+                            hit.Fraction,
+                            hit.EntityIndex,
+                            hit.ClassName,
+                            embeddedProbe.ContentsRaw,
+                            isEmbedded: true);
+                    }
+
+                    return hit;
+                }
+
                 return hit;
             }
 

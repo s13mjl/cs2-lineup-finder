@@ -67,12 +67,39 @@ public sealed class SimulatorImpactEvaluator : IImpactEvaluator
     public bool TryEvaluate(double yawDegrees, double elevationDegrees, out Vec3 impact)
     {
         var speed = (float)(Ballistics.SpeedFor(_profile, _request.Button) * _throwStrength);
-        var direction = AngleMath.DirectionFromElevation(yawDegrees, elevationDegrees);
-        var velocity = (direction.Normalized() * speed) + _request.Origin.Velocity;
+
+        // The search coordinate is the physical release elevation. The engine
+        // raises every throw by its pitch-dependent aim bias, so the aim pitch
+        // fed to the forward simulator must be the exact inverse; using the
+        // physical elevation as the aim added the full bias to every SolveAsync
+        // candidate (the live sliced path already converted in Core).
+        double aimPitch = AimPitchFromElevation(elevationDegrees, _profile.AimBiasDegrees);
+        var direction = AngleMath.DirectionFromElevation(yawDegrees, aimPitch);
+        // The engine adds a fraction of the thrower's own velocity to the
+        // launch: CS:GO leak weapon_basecsgrenade.cpp L614,
+        // vecThrow = vForward * flVel + (pPlayer->GetAbsVelocity() * 1.25).
+        // The request carries the RAW thrower velocity; the multiplier comes
+        // from the environment (default 1.25, the leak constant). This is
+        // baked here exactly once per simulated throw; the forward Core
+        // simulator never adds the thrower term again.
+        float inheritance = _request.Environment.ThrowerVelocityInheritance;
+        var velocity = (direction.Normalized() * speed)
+            + (_request.Origin.Velocity * inheritance);
 
         var tickRate = (int)Round(1d / _request.Environment.TickInterval);
+
+        // The engine lowers the release source before its 22-unit trace for the
+        // underhand tiers (Lerp(strength, -12, 0)).
+        float releaseLower = _request.Button switch
+        {
+            ThrowButton.Secondary => 12f,
+            ThrowButton.Both => 6f,
+            _ => 0f,
+        };
+        Vec3 release = _request.Origin.Eyes + new Vec3(0f, 0f, -releaseLower);
+
         var parameters = new ThrowParams(
-            _request.Origin.Eyes,
+            release,
             velocity,
             _request.GrenadeType,
             _throwStrength,
@@ -93,5 +120,22 @@ public sealed class SimulatorImpactEvaluator : IImpactEvaluator
 
         impact = result.Impact.Position;
         return true;
+    }
+
+    /// <summary>
+    /// Exact inverse of the engine's pitch-dependent aim bias:
+    /// e(a) = a + b*(90-|a|)/90.
+    /// </summary>
+    private static double AimPitchFromElevation(double elevation, double bias)
+    {
+        if (Abs(bias) < 1e-9)
+        {
+            return elevation;
+        }
+
+        double delta = elevation - bias;
+        return delta >= 0d
+            ? delta * 90d / (90d - bias)
+            : delta * 90d / (90d + bias);
     }
 }

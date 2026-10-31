@@ -111,7 +111,22 @@ public sealed class StubTrajectorySimulator : ITrajectorySimulator
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(solver);
 
-        return Task.Run(async () => await SolveAsync(request, solver, world, cancellationToken).ConfigureAwait(false), cancellationToken);
+        // Run inline on the caller's thread. The caller owns the thread decision:
+        // sweeps are native calls that must run on the game thread, and the whole
+        // enumeration is synchronous anyway, so a Task.Run here would only move
+        // native calls onto a worker thread.
+        return SolveAsync(request, solver, world, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public ILineupSearch? BeginLineupSearch(
+        LineupRequest request,
+        ILineupSolver solver,
+        IWorldGeometry world)
+    {
+        // The stub only runs the synchronous solve below; slicing adds nothing for
+        // it because it evaluates at most MaxCandidates cheap vacuum trajectories.
+        return null;
     }
 
     private static async Task<SolverOutcome> SolveAsync(

@@ -162,6 +162,13 @@ are `attack`, `attack2` and `attack3`; `left`/`lmb`, `right`/`rmb` and
 !lf_find
 ```
 
+With an explicit duration the search scales its work to the budget instead of
+finishing early and idling the clock:
+
+```
+!lf_find 60
+```
+
 Searches for a throw from the marked point into the marked zone and reports the
 best angles. Requires both a throw point and a landing zone; otherwise the plugin
 answers `Set a throw point first: css_lf_start.` or
@@ -183,8 +190,13 @@ the impact point to the centre of the zone. Results are sorted best first, and t
 first one is drawn in the world: a beam from your eyes along the aim direction and
 a cross at the impact point, both for `visuals.beamDurationSeconds` (3 seconds).
 
+A duration of `!lf_find <seconds>` (1-120) applies to that one search. It raises
+the candidate budget and densifies the angle grid together, calibrated to the
+simulator's measured throughput, and prints a progress line every 256 evaluated
+candidates. Without a duration the configured defaults apply unchanged.
+
 If nothing lands inside the zone you get `No line-up found: ...`, and if the
-budget expires, `Search timed out after 3.0s.` A player can only have one search in
+budget expires, `Search timed out after N.Ns.` naming the actual budget. A player can only have one search in
 flight; a second `!lf_find` answers `A search is already running.`
 
 > **[Screenshot: `docs/images/find.png` - the beam and the impact cross]**
@@ -338,20 +350,21 @@ Recorded here because they explain the numbers a player sees. They live in
 | --- | --- | --- |
 | Standing eye height | 64 u | Throw point eye line, standing. |
 | Crouched eye height | 46 u | Throw point eye line, crouched. |
-| Jump velocity | 300 u/s | Upward velocity added by a jump throw. |
-| Release offset | +16 u forward, +8 u up | Where the grenade leaves the hand. |
+| Jump velocity | 300 u/s | Player velocity added by a jump throw (multiplied by the 1.25 inheritance in the launch). |
+| Release offset | +16 u along the biased aim | Engine hull trace 22 u forward, then pull back 6 u from the hit; no fixed +8 up. Underhand lowers the source by 12 u, both-buttons by 6 u. |
 | Fallback aim distance | 1024 u | Zone placement when the map cannot be traced. |
 | Default zone radius | 128 u | `css_lf_zone` without a radius. |
 | Solve budget | 3.0 s | `solver.timeoutSeconds`. |
 | Maximum results | 5 | `solver.maxResults`. |
 | Release speed, `primary` | 675 u/s | Full throw. |
-| Release speed, `secondary` | 450 u/s | Underhand throw. |
-| Release speed, `both` | 560 u/s | Medium throw. |
+| Release speed, `secondary` | 202.5 u/s | Underhand throw (0.3 strength tier). |
+| Release speed, `both` | 438.75 u/s | Medium throw (0.65 strength tier). |
 
-The three release speeds and the gravity used while a real simulator is not
-installed belong to the built-in stub. Once `CS2LineupFinder.Core.dll` is present
-the physics come from `PhysicsParameters` instead, and the angles can differ by a
-degree or so on long throws - see `PHYSICS.md` for those values and their sources.
+The three release speeds above are the Core physics tiers (`PhysicsParameters`);
+the built-in stub uses 675 / 450 / 560 until `CS2LineupFinder.Core.dll` is
+installed, and its gravity is 800 instead of 320. Once Core is present the
+physics come from `PhysicsParameters` - see `PHYSICS.md` for those values and
+their sources.
 
 ## Troubleshooting / 常见问题
 

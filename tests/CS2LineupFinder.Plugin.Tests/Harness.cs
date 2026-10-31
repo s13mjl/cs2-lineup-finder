@@ -54,8 +54,16 @@ internal sealed class Harness : IDisposable
             {
                 Config = config;
                 return config;
+            },
+            (slot, yaw, pitch) =>
+            {
+                Aims.Add((slot, yaw, pitch));
+                return true;
             });
     }
+
+    /// <summary>View snaps recorded by the fake aim hook: (slot, yaw, engine pitch).</summary>
+    public List<(int Slot, float Yaw, float Pitch)> Aims { get; } = new();
 
     /// <summary>Temporary plugin root; holds <c>config/</c> and <c>data/</c>.</summary>
     public string Root { get; }

@@ -13,7 +13,7 @@ public static class Phrases
     private static readonly string[] En =
     {
         /* 00 */ "[LineupFinder] {0}",
-        /* 01 */ "Marked throw point at {0}.",
+        /* 01 */ "Marked throw point at {0} (release point {1}).",
         /* 02 */ "Landing zone: {0}.",
         /* 03 */ "Grenade set to {0}.",
         /* 04 */ "Throw mode set to {0}.",
@@ -68,12 +68,25 @@ public static class Phrases
         /* 53 */ "Saved under {0}",
         /* 54 */ "This server cannot trace the map, so zones fall back to a fixed distance.",
         /* 55 */ "Usage: {0}",
+        /* 56 */ "View snapped to yaw {0:0.0} pitch {1:0.0}.",
+        /* 57 */ "The collision-sweep budget ran out, so the search was stopped instead of reporting garbage. Raise solver.maxTracesPerSolve in config.toml.",
+        /* 58 */ "Calibration: real landing was {0:0.0}u from the prediction (#{1} saved).",
+         /* 59 */ "Usage: css_lf_find [seconds] - 1 to 120, e.g. css_lf_find 60. Applies to the next search only.",
+        /* 60 */ "Replay #{0}: predicted error {1:0.0}u (predicted {2}, actual {3}).",
+        /* 61 */ "Replay done: {0} sample(s), mean error {1:0.0}u.",
+        /* 62 */ "[lf-replay] Core simulator not loaded; telemetry replay unavailable.",
+        /* 63 */ "[lf-replay] {0} failed: {1}",
+        /* 64 */ "[lf-replay] no readable telemetry CSV in {0}",
+        /* 65 */ "{0}",
+        /* 66 */ "Search progress: {0} candidates simulated.",
+        /* 67 */ "Searching with a {0:0.##}s budget; progress prints every {1} candidates.",
+        /* 68 */ "The search budget expired after {0:0.0}s; the line-ups found so far follow.",
     };
 
     private static readonly string[] Zh =
     {
         /* 00 */ "[瞄点预测] {0}",
-        /* 01 */ "已标记投掷点：{0}。",
+        /* 01 */ "已标记投掷点：{0}（出手点 {1}）。",
         /* 02 */ "落点范围：{0}。",
         /* 03 */ "道具已设为 {0}。",
         /* 04 */ "投掷方式已设为 {0}。",
@@ -128,6 +141,19 @@ public static class Phrases
         /* 53 */ "保存位置：{0}",
         /* 54 */ "本服务器无法进行地图射线检测，落点将使用固定距离回退。",
         /* 55 */ "用法：{0}",
+        /* 56 */ "视角已对准：水平 {0:0.0}，俯仰 {1:0.0}。",
+        /* 57 */ "碰撞检测预算耗尽，搜索已停止以避免给出错误结果。可在 config.toml 中调高 solver.maxTracesPerSolve。",
+        /* 58 */ "标定：真实落点与预测偏差 {0:0.0}u（已记录 #{1} 个样本）。",
+         /* 59 */ "用法：css_lf_find [秒数] - 1 到 120，例如 css_lf_find 60。仅对下一次搜索生效。",
+        /* 60 */ "回放样本 #{0}：预测偏差 {1:0.0}u（预测 {2}，真实 {3}）。",
+        /* 61 */ "回放完成：{0} 个样本，平均偏差 {1:0.0}u。",
+        /* 62 */ "[lf-replay] Core 模拟器未加载，无法进行遥测回放。",
+        /* 63 */ "[lf-replay] {0} 回放失败：{1}",
+        /* 64 */ "[lf-replay] {0} 中没有可读的遥测 CSV。",
+        /* 65 */ "{0}",
+        /* 66 */ "搜索进度：已模拟 {0} 个候选。",
+        /* 67 */ "本次搜索预算 {0:0.##} 秒；每 {1} 个候选播报一次进度。",
+        /* 68 */ "搜索预算在 {0:0.0} 秒时到期，以下是已找到的结果。",
     };
 
     /// <summary>Index of the message wrapped with the plugin prefix.</summary>
@@ -300,6 +326,43 @@ public static class Phrases
 
         /// <summary>Shows how a command is called, when the player typed too little.</summary>
         public const int Usage = 55;
+
+        /// <summary>The player's view was snapped onto a suggested throw.</summary>
+        public const int Aimed = 56;
+
+        /// <summary>The per-search sweep budget was exhausted mid-search.</summary>
+        public const int SweepBudgetExhausted = 57;
+
+        /// <summary>A real landing was recorded as a calibration sample.</summary>
+       public const int CalibrationSample = 58;
+        public const int SearchSecondsUsage = 59;
+
+        /// <summary>One calibration sample replayed on the live map.</summary>
+        public const int ReplayResult = 60;
+
+        /// <summary>Summary of a calibration replay run.</summary>
+        public const int ReplaySummary = 61;
+
+        /// <summary>Telemetry replay requested before the Core simulator loaded.</summary>
+        public const int ReplayTelemetryNotAvailable = 62;
+
+        /// <summary>One telemetry CSV could not be replayed.</summary>
+        public const int ReplayTelemetryFileFailed = 63;
+
+        /// <summary>The telemetry directory held no readable capture.</summary>
+        public const int ReplayTelemetryNoneFound = 64;
+
+        /// <summary>Diagnostic pass-through for pre-formatted replay lines.</summary>
+        public const int ReplayTelemetryDescribe = 65;
+
+        /// <summary>Long search progress heartbeat.</summary>
+        public const int SearchProgress = 66;
+
+        /// <summary>Explains the budget and the progress cadence.</summary>
+        public const int SearchBudgetNote = 67;
+
+        /// <summary>A search was cut off by the wall clock with results banked.</summary>
+        public const int SearchBudgetExpired = 68;
     }
 
     /// <summary>Formats a message for the configured language.</summary>

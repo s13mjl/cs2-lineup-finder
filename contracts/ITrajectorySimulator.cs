@@ -237,4 +237,54 @@ public interface ITrajectorySimulator
         ILineupSolver solver,
         IWorldGeometry world,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates a resumable search the host can advance in small time slices on the
+    /// game thread. Every <see cref="ILineupSearch.Step"/> call must stay short
+    /// enough to run between ticks, and every collision sweep must be issued from
+    /// the thread that calls <see cref="ILineupSearch.Step"/>, which is where the
+    /// engine requires them.
+    /// </summary>
+    /// <param name="request">Request describing origin, stance and target zone.</param>
+    /// <param name="solver">Candidate angle provider.</param>
+    /// <param name="world">World geometry used for collision sweeps.</param>
+    /// <returns>
+    /// The search, or <see langword="null"/> when this implementation cannot slice
+    /// its work, in which case the host falls back to
+    /// <see cref="SolveLineupAsync"/>.
+    /// </returns>
+    ILineupSearch? BeginLineupSearch(
+        LineupRequest request,
+        ILineupSolver solver,
+        IWorldGeometry world);
+}
+
+/// <summary>A resumable line-up search advanced in game-thread time slices.</summary>
+public interface ILineupSearch
+{
+    /// <summary>
+    /// Number of candidates evaluated so far. The plugin layer reads this between
+    /// slices to report search progress without any callback plumbing.
+    /// </summary>
+    int Evaluated { get; }
+
+    /// <summary>
+    /// Simulates candidates until roughly <paramref name="budgetMilliseconds"/> of
+    /// wall time has elapsed or the candidate list is exhausted.
+    /// </summary>
+    /// <param name="budgetMilliseconds">Wall-clock slice, in milliseconds.</param>
+    /// <returns>
+    /// The final outcome once the search has finished, otherwise
+    /// <see langword="null"/> while more slices remain.
+    /// </returns>
+    SolverOutcome? Step(double budgetMilliseconds);
+
+    /// <summary>
+    /// Ends the search immediately and returns the outcome for what has been
+    /// banked so far. The host calls this when its wall-clock budget expires:
+    /// the search may already hold in-zone hits or the closest misses, and
+    /// discarding them turns a budget stop into a useless empty failure.
+    /// </summary>
+    /// <returns>The final outcome; later <see cref="Step"/> calls return it unchanged.</returns>
+    SolverOutcome FinishNow();
 }

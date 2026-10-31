@@ -27,6 +27,7 @@ public static class GrenadeProfiles
                 Elasticity = 0.45f,
                 FuseTime = 0f,
                 DetonatesOnImpact = false,
+                AimBiasDegrees = 10f,
             },
             [GrenadeType.Flash] = new GrenadeProfile
             {
@@ -39,6 +40,7 @@ public static class GrenadeProfiles
                 Elasticity = 0.45f,
                 FuseTime = 1.6f,
                 DetonatesOnImpact = false,
+                AimBiasDegrees = 10f,
             },
             [GrenadeType.He] = new GrenadeProfile
             {
@@ -50,6 +52,7 @@ public static class GrenadeProfiles
                 GravityScale = 0.4f,
                 Elasticity = 0.45f,
                 DetonatesOnImpact = true,
+                AimBiasDegrees = 10f,
             },
             [GrenadeType.Molotov] = new GrenadeProfile
             {
@@ -61,6 +64,7 @@ public static class GrenadeProfiles
                 GravityScale = 0.4f,
                 Elasticity = 0.45f,
                 DetonatesOnImpact = true,
+                AimBiasDegrees = 10f,
             },
         };
 

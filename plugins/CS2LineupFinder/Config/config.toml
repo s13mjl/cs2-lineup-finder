@@ -11,19 +11,80 @@
 [solver]
 # Wall clock budget for css_lf_find, in seconds. The plugin cancels the search
 # when the budget expires and reports a timeout instead of stalling the server.
-timeoutSeconds = 3.0
+timeoutSeconds = 30.0
 
 # How many solutions are printed in chat and stored per search.
 maxResults = 5
 
 # Upper bound on candidate view angles handed to the simulator per search.
-maxCandidates = 64
+maxCandidates = 4096
+
+# Angle grid density for the coarse sweep. The shipped values halve both steps
+# of the original defaults, roughly quadrupling the number of simulated
+# candidates in exchange for a proportionally longer search.
+yawStepDegrees = 1.0
+elevationStepDegrees = 1.5
+
+# Angular size of the coarse sweep: the grid tries every yaw within this many
+# degrees either side of the direct bearing to the zone centre. Raise it when a
+# plausible throw arcs over an obstacle the straight bearing does not clear.
+yawSpanDegrees = 30.0
+
+# Release elevation window for the coarse grid, degrees above the horizon. The
+# vacuum solution needs the zone inside this window, so a target that only
+# reaches the zone after a bounce still has to sit between the two bounds.
+minElevationDegrees = -15.0
+maxElevationDegrees = 85.0
+
+# How many of the closest misses get a Nelder-Mead refinement after the coarse
+# sweep. More seeds find bounce line-ups further from the vacuum ranking's top
+# pick, at the cost of a few dozen extra simulations.
+refineSeeds = 4
 
 # Upper bound on collision sweeps one search may issue against the map. A search
-# that hits the cap treats the remaining traces as misses, so a candidate that
-# keeps bouncing cannot run until the timeout fires. Raise it on large maps if a
-# search times out while candidates are still being tested.
-maxTracesPerSolve = 200000
+# that hits the cap treats the remaining traces as misses, so the plugin aborts
+# instead of reporting blind results.
+#
+# Sizing: a full 4096-candidate grid with the worst-case ~6000 sweeps per 12 s
+# trajectory needs about 24.6M sweeps, while the 60 s wall clock cap allows at
+# most ~33M at the measured in-game rate (~0.55M sweeps/s). 64M therefore covers
+# the whole grid mathematically: hitting the cap now can only mean a runaway
+# loop, never a legitimate search that simply needed more headroom. The wall
+# clock budget remains the real time limit.
+maxTracesPerSolve = 64000000
+
+# Grenade constants the forward simulation runs with. CS2 values first, tune
+# only against calibration samples recorded with a real throw.
+[physics]
+# Grenade constants the forward simulation runs with. CS2 values first, tune
+# only against calibration samples recorded with a real throw.
+grenadeGravity = 320.0
+restitution = 0.45
+# DEPRECATED and IGNORED: groundFriction / bounceFrictionMu belonged to the
+# per-surface friction model, which the 2026-10-15 CS2 telemetry disproved -
+# every world contact mirrored the WHOLE velocity vector at exactly 0.45
+# (16 tangential components, max deviation 2e-6), so there is no tangential
+# friction term to tune. Editing these two keys has no effect; they are kept
+# only so an older config file still loads. See docs/PHYSICS.md.
+groundFriction = 1.0
+bounceFrictionMu = 0.0
+#
+# What actually governs a bounce now, and what to tune instead:
+#   restitution                0.45, telemetry-measured, do not touch
+#   smokeFirstBounceDamping    extra tangential damping on a smoke's first hit
+#   groundRollFrictionRate     0 = no rolling friction (engine faithful); a
+#                              positive value adds exponential tangential decay
+#                              while the projectile rolls, for calibration only
+smokeFirstBounceDamping = 1.0
+smokeExtraDampingEnabled = false
+# 0 = faithful to the CS:GO leak: ResolveFlyCollisionCustom has NO per-tick
+# rolling friction, the grenade bounces at 0.45 elasticity until the 20 u/s
+# sleep threshold hard-stops it. The previous fitted 4.5 was an unsourced
+# model patch, now retired. Turn this on ONLY after a telemetry capture fits
+# a real ground-contact speed decay.
+groundRollFrictionRate = 0.0
+fullThrowSpeed = 675.0
+aimBiasDegrees = 10.0
 
 [visuals]
 # Master switch for every in-world visual: aim beam, landing ring, cross
@@ -55,8 +116,23 @@ fallbackAimDistance = 1024.0
 
 [general]
 # Player facing language: "en" or "zh-CN".
-language = "en"
+language = "zh-CN"
+
+# Snaps the player's view onto the suggested angles after a successful search,
+# css_lf_load or css_lf_set. css_lf_aim re-aims manually at any time.
+autoAim = true
 
 # Adds the search settings, the data directory and the trace backend to the bottom
 # of the !lf_menu list. Useful while setting a server up; noisy for players.
 verboseMenu = false
+
+# Forwards !lf_* chat aliases to the css_lf_* console commands through the
+# player_chat game event. CounterStrikeSharp normally builds this bridge from its
+# own chat trigger, but that hook stopped firing after the CS2 1.41.9.0 update,
+# so the bridge can keep the aliases alive until the upstream fix ships. Leave it
+# off while chat commands respond on their own, otherwise every command runs twice.
+chatBridge = false
+
+# setang (the view snap behind auto-aim) is cheat-protected. When this is on, the
+# plugin enables sv_cheats on map start so the snap works on a practice server.
+svCheats = true

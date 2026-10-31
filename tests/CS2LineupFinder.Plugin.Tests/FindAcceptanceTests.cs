@@ -196,6 +196,42 @@ public sealed class FindAcceptanceTests
     }
 
     [Fact]
+    public async Task Find_SnapsTheViewOntoTheBestResult_WhenAutoAimIsOn()
+    {
+        using var harness = new Harness();
+        harness.PrepareSession();
+        harness.Service.MapEnabled = true;
+
+        var outcome = await harness.Service.FindAsync(Harness.Slot, harness.World);
+
+        Assert.NotNull(outcome);
+        Assert.Equal(SolverStatus.Success, outcome!.Status);
+        var solution = outcome.Results[0];
+        var aimed = Assert.Single(harness.Aims);
+        Assert.Equal(Harness.Slot, aimed.Slot);
+        Assert.Equal(CommandParser.RoundAngle(solution.Yaw), aimed.Yaw);
+        Assert.Equal(CommandParser.RoundAngle(solution.Pitch), aimed.Pitch);
+    }
+
+    [Fact]
+    public async Task Find_SecondSearch_IsNotPoisonedByTheSweepBudget()
+    {
+        using var harness = new Harness();
+        harness.PrepareSession();
+
+        var first = await harness.Service.FindAsync(Harness.Slot, harness.World);
+        Assert.NotNull(first);
+        Assert.Equal(SolverStatus.Success, first!.Status);
+
+        // Regression: the tracer meter was never refilled between searches, so
+        // once one search had spent the budget, every later sweep reported a miss
+        // and every later search reported "no solution".
+        var second = await harness.Service.FindAsync(Harness.Slot, harness.World);
+        Assert.NotNull(second);
+        Assert.Equal(SolverStatus.Success, second!.Status);
+    }
+
+    [Fact]
     public async Task Find_ExplainsWhatIsMissing_BeforeItSearches()
     {
         using var harness = new Harness();

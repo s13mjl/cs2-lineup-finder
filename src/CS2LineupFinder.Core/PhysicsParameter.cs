@@ -18,6 +18,13 @@ public enum SourceTier
 
     /// <summary>Fitted in-game against recorded landings by CalibrationRunner.</summary>
     Measured = 3,
+
+    /// <summary>
+    /// No external source was found. The default is an engineering guess kept
+    /// only as a placeholder; a telemetry capture or calibration fit must
+    /// confirm or replace it before the value can be trusted.
+    /// </summary>
+    Guessed = 4,
 }
 
 /// <summary>A single tunable with its provenance, so the calibration report can cite it.</summary>

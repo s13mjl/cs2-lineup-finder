@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using CS2LineupFinder.Contracts;
+using CS2LineupFinder.Plugin.Calibration;
 using CS2LineupFinder.Plugin.Abstractions;
 using CS2LineupFinder.Plugin.Config;
 using CS2LineupFinder.Plugin.Persistence;
@@ -22,6 +23,13 @@ namespace CS2LineupFinder.Plugin.Commands;
 public sealed partial class CommandService
 {
     private readonly SessionStore _sessions;
+
+    /// <summary>
+    /// The request the most recent <c>css_lf_find</c> built, kept for diagnostics
+    /// and tests so the effective candidate budget is observable from outside.
+    /// </summary>
+    public LineupRequest? LastBuiltRequest { get; private set; }
+
     private readonly LineupRepository _lineups;
     private readonly SimulatorBridge _simulator;
     private readonly IPluginMessages _messages;
@@ -30,6 +38,7 @@ public sealed partial class CommandService
     private readonly Func<string> _currentMap;
     private readonly Func<PluginConfig> _config;
     private readonly Func<PluginConfig, PluginConfig> _applyConfig;
+    private readonly Func<int, float, float, bool>? _aim;
 
     /// <summary>Creates the service.</summary>
     /// <param name="sessions">Per-player session store.</param>
@@ -41,6 +50,11 @@ public sealed partial class CommandService
     /// <param name="currentMap">Returns the map the server is running, used when a session has none.</param>
     /// <param name="config">Returns the live configuration, so a reload takes effect immediately.</param>
     /// <param name="applyConfig">Publishes a configuration read from disk back to the plugin.</param>
+    /// <param name="aim">
+    /// Optional view control: turns a player's view onto suggested angles (a
+    /// client-side <c>setang</c>). Null in tests and headless hosts, where aiming
+    /// is simply skipped.
+    /// </param>
     public CommandService(
         SessionStore sessions,
         LineupRepository lineups,
@@ -50,7 +64,8 @@ public sealed partial class CommandService
         IClock clock,
         Func<string> currentMap,
         Func<PluginConfig> config,
-        Func<PluginConfig, PluginConfig> applyConfig)
+        Func<PluginConfig, PluginConfig> applyConfig,
+        Func<int, float, float, bool>? aim = null)
     {
         ArgumentNullException.ThrowIfNull(sessions);
         ArgumentNullException.ThrowIfNull(lineups);
@@ -71,13 +86,117 @@ public sealed partial class CommandService
         _currentMap = currentMap;
         _config = config;
         _applyConfig = applyConfig;
+        _aim = aim;
     }
 
     /// <summary>Session store backing this service, also used by the command glue.</summary>
     public SessionStore Sessions => _sessions;
 
+    /// <summary>Pending suggestions waiting for a real landing, keyed by slot.</summary>
+    private readonly Dictionary<int, PendingSuggestion> _pendingSuggestions = new();
+
+    /// <summary>When the pending suggestion was recorded, so stale ones expire.</summary>
+    private readonly Dictionary<int, long> _pendingSuggestionsAt = new();
+
+    /// <summary>How long a suggestion stays eligible to pair with a landing.</summary>
+    private static readonly TimeSpan SuggestionTTL = TimeSpan.FromSeconds(90);
+
+    /// <summary>Monotonic suggestion counter; persists across the plugin's lifetime.</summary>
+    private long _suggestionCounter;
+
+    /// <summary>
+    /// Remembers the suggestion a player was just given, so the real landing of
+    /// that grenade can be paired with it for calibration.
+    /// </summary>
+    internal void RecordSuggestion(int playerSlot, LineupRequest request, LineupSolution solution)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(solution);
+        _pendingSuggestions[playerSlot] = new PendingSuggestion(
+            solution.Yaw,
+            solution.Pitch,
+            request.Origin.Feet,
+            request.Origin.Eyes.Z - request.Origin.Feet.Z,
+            request.GrenadeType,
+            solution.ImpactPosition,
+            solution.ReleasePosition,
+            Environment.TickCount64,
+            ++_suggestionCounter);
+        _pendingSuggestionsAt[playerSlot] = Environment.TickCount64;
+    }
+
+    /// <summary>
+    /// Takes the pending suggestion for calibration pairing, if one is fresh
+    /// enough. Returns null when there is nothing to pair with.
+    /// </summary>
+    internal PendingSuggestion? TakeSuggestionForCalibration(int playerSlot, GrenadeType thrownType)
+    {
+        if (!_pendingSuggestions.TryGetValue(playerSlot, out var pending))
+        {
+            return null;
+        }
+
+        long recordedAt = _pendingSuggestionsAt.TryGetValue(playerSlot, out var at) ? at : 0;
+        if (Environment.TickCount64 - recordedAt > SuggestionTTL.TotalMilliseconds)
+        {
+            _pendingSuggestions.Remove(playerSlot);
+            _pendingSuggestionsAt.Remove(playerSlot);
+            return null;
+        }
+
+        if (pending.GrenadeType != thrownType)
+        {
+            return null;
+        }
+
+        _pendingSuggestions.Remove(playerSlot);
+        _pendingSuggestionsAt.Remove(playerSlot);
+        return pending;
+    }
+
+    /// <summary>
+    /// Highest suggestion number currently pending for any slot, or 0 when
+    /// none is pending. The launch capture stores this snapshot, so pairing
+    /// can require the capture and the sample to come from the same
+    /// suggestion: a second find issued while a grenade is still airborne
+    /// raises the counter above the snapshot and refuses the stale pair.
+    /// </summary>
+    internal long MaxPendingSuggestionNumber()
+    {
+        long max = 0;
+        foreach (var pending in _pendingSuggestions.Values)
+        {
+            if (pending.SuggestionNumber > max)
+            {
+                max = pending.SuggestionNumber;
+            }
+        }
+
+        return max;
+    }
+
     /// <summary>Solver bridge backing this service.</summary>
     private SimulatorBridge Simulator => _simulator;
+
+    /// <summary>
+    /// Snaps the player's view onto a suggested throw, keeping the eye height and
+    /// stance the angles were solved for. Used by <c>css_lf_aim</c> and by the
+    /// auto-aim hook after a search, a load or a selection change.
+    /// </summary>
+    /// <param name="playerSlot">Engine slot of the player.</param>
+    /// <param name="solution">Suggested throw to aim at.</param>
+    public void AimAtSolution(int playerSlot, LineupSolution solution)
+    {
+        ArgumentNullException.ThrowIfNull(solution);
+        if (_aim is null)
+        {
+            return;
+        }
+
+        // Pass the contract pitch through untouched; the engine-side view
+        // command owns the single mirror into the engine convention.
+        _aim(playerSlot, CommandParser.RoundAngle(solution.Yaw), CommandParser.RoundAngle(solution.Pitch));
+    }
 
     /// <summary>Saved line-up repository backing this service.</summary>
     private LineupRepository Lineups => _lineups;
@@ -132,7 +251,7 @@ public sealed partial class CommandService
         session.ThrowVelocity = velocity;
         session.MarkingMode = true;
 
-        Reply(playerSlot, Phrases.Id.MarkedThrowPoint, CommandParser.FormatPoint(feet));
+        Reply(playerSlot, Phrases.Id.MarkedThrowPoint, CommandParser.FormatPoint(feet), CommandParser.FormatPoint(eyes));
 
         if (_visuals.Enabled)
         {
@@ -264,23 +383,29 @@ public sealed partial class CommandService
             return null;
         }
 
-        var config = _config();
-        return new LineupRequest
-        {
-            MapName = session.MapName,
-            GrenadeType = session.GrenadeType,
-            ThrowMode = session.ThrowMode,
-            Button = session.Button,
-            Origin = new ThrowOrigin
-            {
-                Feet = session.ThrowPoint.Value,
-                Eyes = session.EyePoint.Value,
-                Velocity = session.ThrowVelocity,
-            },
-            TargetZone = session.Zone,
-            Environment = config.BuildEnvironment(),
-            MaxCandidates = config.MaxCandidates,
-        };
+       var config = _config();
+       return new LineupRequest
+       {
+           MapName = session.MapName,
+           GrenadeType = session.GrenadeType,
+           ThrowMode = session.ThrowMode,
+           Button = session.Button,
+           Origin = new ThrowOrigin
+           {
+               Feet = session.ThrowPoint.Value,
+               Eyes = session.EyePoint.Value,
+               Velocity = session.ThrowVelocity,
+           },
+           TargetZone = session.Zone,
+           Environment = config.BuildEnvironment(),
+           MaxCandidates = config.MaxCandidates,
+           SolveSeconds = session.SolveSecondsOverride,
+            YawStepDegrees = config.YawStepDegrees,
+            ElevationStepDegrees = config.ElevationStepDegrees,
+            YawSpanDegrees = config.YawSpanDegrees,
+            MinElevationDegrees = config.MinElevationDegrees,
+            MaxElevationDegrees = config.MaxElevationDegrees,
+       };
     }
 
     /// <summary>Reports the search settings currently in effect.</summary>

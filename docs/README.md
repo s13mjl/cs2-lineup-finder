@@ -141,11 +141,16 @@ clamped, and unknown keys are logged as a warning at load instead of failing.
 | `general.language` | `"en"` | Player-facing text: `"en"` or `"zh-CN"`. 玩家可见文案语言。 |
 | `general.verboseMenu` | `false` | Appends the search settings and the data directory to the bottom of `!lf_menu`, plus a line for the stub simulator or the missing trace backend while either is in use. 在菜单底部追加求解参数与存档目录，并在使用内置桩或射线后端不可用时各加一行提示。 |
 
-`solver.maxTracesPerSolve` (default `200000`) caps the collision sweeps one
+`solver.maxTracesPerSolve` (default `64000000`) caps the collision sweeps one
 search may issue, so a broken candidate cannot bounce until the timeout fires.
-It ships in the template and can be lowered on a busy server.
-`solver.maxTracesPerSolve`（默认 `200000`）限制单次求解的碰撞检测次数上限，
-模板中已包含，服务器负载高时可调低。
+The value exceeds the worst-case full coarse grid (~4096 candidates x up to
+~6000 sweeps per 12 s trajectory = ~24.6M), so a legitimate search can never
+hit it; the wall clock budget stays the real limit. It ships in the template
+and can be lowered on a busy server.
+`solver.maxTracesPerSolve`（默认 `64000000`）限制单次求解的碰撞检测次数上限，
+该值高于完整粗网格的最坏需求（约 4087 候选 × 每条 12 秒轨迹最多约 6000 次
+扫描 ≈ 2460 万），合法搜索不可能触顶；真正的时限是墙钟预算。模板中已包含，
+服务器负载高时可调低。
 
 ## 6. Data files / 数据文件
 

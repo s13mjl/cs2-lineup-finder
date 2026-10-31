@@ -37,8 +37,30 @@ public sealed record LineupRequest
     /// <summary>Tuning knobs for the integrator.</summary>
     public SimulationEnvironment Environment { get; init; } = new();
 
-    /// <summary>Upper bound on how many distinct throws the solver may evaluate.</summary>
-    public int MaxCandidates { get; init; } = 64;
+   /// <summary>Upper bound on how many distinct throws the solver may evaluate.</summary>
+   public int MaxCandidates { get; init; } = 64;
+
+    /// <summary>
+    /// Optional wall-clock budget for this search, in seconds, overriding the
+    /// solver default. Long throws on busy maps need more time than the default
+    /// so a player can trade patience for coverage with <c>css_lf_find &lt;seconds&gt;</c>.
+    /// </summary>
+    public double? SolveSeconds { get; init; }
+
+    /// <summary>Optional yaw grid step override in degrees; null keeps the solver default.</summary>
+    public double? YawStepDegrees { get; init; }
+
+    /// <summary>Optional elevation grid step override in degrees; null keeps the solver default.</summary>
+    public double? ElevationStepDegrees { get; init; }
+
+    /// <summary>Optional yaw span override in degrees; null keeps the solver default.</summary>
+    public double? YawSpanDegrees { get; init; }
+
+    /// <summary>Optional lowest release elevation for the grid, degrees above the horizon.</summary>
+    public double? MinElevationDegrees { get; init; }
+
+    /// <summary>Optional highest release elevation for the grid, degrees above the horizon.</summary>
+    public double? MaxElevationDegrees { get; init; }
 }
 
 /// <summary>A single suggested throw returned by the solver.</summary>
@@ -135,6 +157,14 @@ public sealed record GrenadeProfile
 
     /// <summary>Projectile radius used for hull traces.</summary>
     public float CollisionRadius { get; init; } = 2f;
+
+    /// <summary>
+    /// Upward aim bias the engine applies to the throw, in degrees. CS2 raises
+    /// every throw by about ten degrees at level aim, so the pitch a player aims
+    /// differs from the physical release elevation; solvers use this to convert
+    /// between the two. Zero restores the naive "aim = release" model.
+    /// </summary>
+    public float AimBiasDegrees { get; init; }
 }
 
 /// <summary>Stance dependent body measurements used to derive the release point.</summary>

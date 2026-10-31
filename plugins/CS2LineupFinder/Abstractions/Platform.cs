@@ -60,6 +60,23 @@ public interface IPluginVisuals
 }
 
 /// <summary>
+/// Player view control the command layer can request. The plugin implements this
+/// with the engine's teleport natives; tests record the calls instead.
+/// </summary>
+public interface IPlayerAim
+{
+    /// <summary>
+    /// Points a player's view at the given angles. Yaw is the contract yaw in
+    /// degrees; pitch is the contract pitch, where positive looks up.
+    /// </summary>
+    /// <param name="playerSlot">Engine slot of the player to aim.</param>
+    /// <param name="yawDegrees">Bearing in degrees.</param>
+    /// <param name="pitchDegrees">Contract pitch in degrees, positive looks up.</param>
+    /// <returns><see langword="true"/> when the view was moved.</returns>
+    bool Aim(int playerSlot, float yawDegrees, float pitchDegrees);
+}
+
+/// <summary>
 /// Time source for the command layer, so a saved line-up's <c>createdAt</c> is
 /// deterministic under test.
 /// </summary>

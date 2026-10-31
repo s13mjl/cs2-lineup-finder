@@ -35,6 +35,9 @@ public sealed class SimulatorBridge
     /// <summary>True while the stand-ins are in place, i.e. Core has not been loaded.</summary>
     public bool UsingStub { get; private set; } = true;
 
+    /// <summary>Configuration the loader reads physics overrides from.</summary>
+    public Func<Config.PluginConfig>? Config { get; set; }
+
     /// <summary>Name of the solver in use, for the diagnostics line in the menu.</summary>
     public string SolverName => Solver.Name;
 
@@ -65,10 +68,30 @@ public sealed class SimulatorBridge
     }
 
     /// <summary>
-    /// Runs a line-up search under the configured timeout. The call is always made
-    /// from the thread pool so a synchronous Core implementation cannot block the
-    /// game thread, and the plugin's cancellation token is the one that decides
-    /// between <see cref="SolverStatus.Timeout"/> and <see cref="SolverStatus.Cancelled"/>.
+    /// Creates a resumable search when the active simulator supports slicing.
+    /// Returns <see langword="null"/> when it does not, in which case the caller
+    /// falls back to <see cref="SolveAsync(LineupRequest, IWorldGeometry, CancellationToken)"/>.
+    /// </summary>
+    /// <param name="request">Line-up to solve.</param>
+    /// <param name="world">World geometry implementation to trace against.</param>
+    /// <returns>The search, or <see langword="null"/>.</returns>
+    public ILineupSearch? BeginLineupSearch(LineupRequest request, IWorldGeometry world)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(world);
+
+        return Simulator.BeginLineupSearch(request, Solver, world);
+    }
+
+    /// <summary>
+    /// Runs a line-up search under the configured timeout. With Core installed the
+    /// sliced path (<see cref="BeginLineupSearch"/>) keeps every engine call on the
+    /// game thread, so this fallback only serves simulators without slicing support
+    /// (the built-in stub), whose work is pure math. The solve is raced against the
+    /// budget: cancelling the token is a request, not a guarantee, so an
+    /// implementation that never observes it must still be cut off on time. The
+    /// plugin's cancellation token is the one that decides between
+    /// <see cref="SolverStatus.Timeout"/> and <see cref="SolverStatus.Cancelled"/>.
     /// </summary>
     /// <param name="request">Line-up to solve.</param>
     /// <param name="world">World geometry implementation to trace against.</param>
@@ -101,12 +124,6 @@ public sealed class SimulatorBridge
                 () => simulator.SolveLineupAsync(request, solver, world, cts.Token),
                 CancellationToken.None);
 
-            // Race the implementation against the budget. Cancelling the token is a
-            // request, not a guarantee: a Core simulator that never observes it, or an
-            // implementation that blocks without awaiting, would otherwise leave
-            // css_lf_find waiting forever and keep the player's search slot locked.
-            // Waiting on the timer instead means the answer always arrives inside the
-            // budget, whatever the implementation does.
             var finished = await Task
                 .WhenAny(solveTask, Task.Delay(budget, CancellationToken.None))
                 .ConfigureAwait(false);

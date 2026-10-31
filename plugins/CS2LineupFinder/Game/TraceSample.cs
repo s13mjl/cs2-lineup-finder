@@ -17,7 +17,9 @@ public readonly struct TraceSample
     /// <param name="fraction">Fraction of the requested distance that was travelled, 0..1.</param>
     /// <param name="entityIndex">Engine index of the hit entity, or -1 for world geometry.</param>
     /// <param name="designerName">Designer name of the hit entity, when there is one.</param>
-    public TraceSample(bool didHit, Vec3 position, Vec3 normal, float fraction, int entityIndex = -1, string? designerName = null)
+    /// <param name="contentsRaw">Raw engine Contents bits at the contact, 0 when unknown.</param>
+    /// <param name="isEmbedded">True when the sweep started embedded in solid world geometry.</param>
+    public TraceSample(bool didHit, Vec3 position, Vec3 normal, float fraction, int entityIndex = -1, string? designerName = null, ulong contentsRaw = 0, bool isEmbedded = false)
     {
         DidHit = didHit;
         Position = position;
@@ -25,6 +27,8 @@ public readonly struct TraceSample
         Fraction = fraction;
         EntityIndex = entityIndex;
         DesignerName = designerName;
+        ContentsRaw = contentsRaw;
+        IsEmbedded = isEmbedded;
     }
 
     /// <summary>Whether the sweep stopped on something.</summary>
@@ -45,6 +49,12 @@ public readonly struct TraceSample
     /// <summary>Designer name of the hit entity, when there is one.</summary>
     public string? DesignerName { get; }
 
+    /// <summary>Raw engine Contents bits at the contact, 0 when the backend could not read them.</summary>
+    public ulong ContentsRaw { get; }
+
+    /// <summary>True when the sweep started embedded in solid world geometry (engine IsAllSolid=1).</summary>
+    public bool IsEmbedded { get; }
+
     /// <summary>A clean miss that travelled all the way to <paramref name="end"/>.</summary>
     /// <param name="end">Where the sweep would have stopped.</param>
     /// <returns>The miss sample.</returns>
@@ -52,7 +62,7 @@ public readonly struct TraceSample
 
     /// <summary>Converts to the engine independent contract type.</summary>
     /// <returns>The same result as a <see cref="TraceHit"/>.</returns>
-    public TraceHit ToTraceHit() => new(DidHit, Position, Normal, Fraction, EntityIndex, DesignerName);
+    public TraceHit ToTraceHit() => new(DidHit, Position, Normal, Fraction, EntityIndex, DesignerName, ContentsRaw, IsEmbedded);
 }
 
 /// <summary>
@@ -81,6 +91,27 @@ public interface ITraceBackend
     /// <param name="ignoreEntityIndex">Entity index to skip, normally the thrower.</param>
     /// <returns>The sweep result, never <see langword="null"/>.</returns>
     TraceSample Trace(Vec3 start, Vec3 end, float hullRadius, int ignoreEntityIndex);
+
+    /// <summary>Whether <see cref="Trace(Vec3, Vec3, float, int, ulong, ulong)"/> can honour the mask.</summary>
+    bool SupportsMaskedTrace => false;
+
+    /// <summary>
+    /// Runs one sweep with an explicit Source 2 collision filter.
+    /// </summary>
+    /// <remarks>
+    /// The default forwards to the mask-less overload, so backends without mask
+    /// support (and test fakes) keep working; callers gate on
+    /// <see cref="SupportsMaskedTrace"/> and fall back otherwise.
+    /// </remarks>
+    /// <param name="start">Sweep start in world units.</param>
+    /// <param name="end">Sweep end in world units.</param>
+    /// <param name="hullRadius">Sphere radius swept along the segment; 0 traces a line.</param>
+    /// <param name="ignoreEntityIndex">Entity index to skip, normally the thrower.</param>
+    /// <param name="interactsWith">Content layers that count as solid.</param>
+    /// <param name="interactsExclude">Content layers to remove first.</param>
+    /// <returns>The sweep result, never <see langword="null"/>.</returns>
+    TraceSample Trace(Vec3 start, Vec3 end, float hullRadius, int ignoreEntityIndex, ulong interactsWith, ulong interactsExclude)
+        => Trace(start, end, hullRadius, ignoreEntityIndex);
 }
 
 /// <summary>
@@ -123,10 +154,16 @@ public sealed class NullTraceBackend : ITraceBackend
     }
 }
 
-/// <summary>
-/// Picks the best tracer the running server can offer and reports which one it picked.
-/// </summary>
-public static class TraceBackendFactory
+    /// <summary>
+    /// Picks the best tracer the running server can offer and reports which one it picked.
+    /// </summary>
+    /// <remarks>
+    /// Backends that can see the engine's raw trace fields also expose
+    /// <see cref="ITraceProbe.DescribeTrace"/>, which is how the engine's meaning of
+    /// those fields gets measured instead of assumed. Probe support is optional: a
+    /// backend without it still traces, it just cannot answer diagnostic questions.
+    /// </remarks>
+    public static class TraceBackendFactory
 {
     private static ITraceBackend? _instance;
 
@@ -166,4 +203,61 @@ public static class TraceBackendFactory
         System.Threading.Volatile.Write(ref _instance, backend);
         return backend;
     }
+
+    /// <summary>
+    /// Returns the probe surface of a backend, or <see langword="null"/> when the
+    /// backend cannot report raw engine trace fields.
+    /// </summary>
+    /// <param name="backend">Backend to inspect.</param>
+    /// <returns>The probe, or <see langword="null"/>.</returns>
+    public static ITraceProbe? AsProbe(ITraceBackend backend) => backend as ITraceProbe;
+}
+
+/// <summary>
+/// A trace backend that can report the engine's raw trace fields verbatim.
+/// </summary>
+/// <remarks>
+/// The engine owns the meaning of every field it returns: CounterStrikeSharp's
+/// managed <c>Trace</c> type only marshals <c>CGameTrace</c> across the script
+/// boundary without interpreting it. A backend that implements this interface hands
+/// those raw values back so a caller can establish, by measurement, what the engine
+/// fills in - which is the only honest way to decide which field the simulator
+/// should read.
+/// </remarks>
+public interface ITraceProbe
+{
+    /// <summary>Runs one raw trace and reports every field the engine filled in.</summary>
+    /// <param name="start">Sweep start in world units.</param>
+    /// <param name="end">Sweep end in world units.</param>
+    /// <param name="hullRadius">Hull half-extent, 0 traces a line.</param>
+    /// <returns>One diagnostic line with every raw field.</returns>
+    string DescribeTrace(Vec3 start, Vec3 end, float hullRadius);
+
+    /// <summary>
+    /// Same as <see cref="DescribeTrace"/> but with an explicit Source 2
+    /// collision filter: <paramref name="interactsWith"/> selects which content
+    /// layers count as solid, <paramref name="interactsExclude"/> removes layers
+    /// from that selection. Values come from the measured Contents enum.
+    /// </summary>
+    string DescribeTraceMasked(Vec3 start, Vec3 end, float hullRadius, ulong interactsWith, ulong interactsExclude);
+
+    /// <summary>
+    /// Runs the sweep exactly as the unmodified backend does (no explicit
+    /// filter object) and returns only the contact verdict.
+    /// </summary>
+    bool RawHit(Vec3 start, Vec3 end, float hullRadius);
+
+    /// <summary>
+    /// Runs the same masked sweep as <see cref="DescribeTraceMasked"/> but
+    /// returns only the engine's contact verdict, so code can match trace
+    /// contacts against recorded events without parsing formatted text.
+    /// </summary>
+    bool MaskedHit(Vec3 start, Vec3 end, float hullRadius, ulong interactsWith, ulong interactsExclude);
+
+    /// <summary>
+    /// Runs the unmodified sweep and names the entity the engine says it hit -
+    /// the designer name and index straight from <c>TraceResult.HitEntity</c>,
+    /// or a fixed marker when the contact is the world or there is no contact.
+    /// </summary>
+    string DescribeHitEntity(Vec3 start, Vec3 end, float hullRadius);
 }

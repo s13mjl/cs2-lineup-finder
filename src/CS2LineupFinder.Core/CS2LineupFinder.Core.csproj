@@ -6,4 +6,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\contracts\CS2LineupFinder.Abstractions.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="CS2LineupFinder.Core.Tests" />
+  </ItemGroup>
 </Project>

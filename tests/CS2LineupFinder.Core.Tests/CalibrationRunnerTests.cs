@@ -19,15 +19,15 @@ public class CalibrationRunnerTests
     {
       "source": "unit test fixture",
       "samples": [
-        { "name": "flat-45", "origin": {"x":0,"y":0,"z":64}, "aimYaw": 0, "aimPitch": 45,
+        { "name": "flat-15", "origin": {"x":0,"y":0,"z":64}, "aimYaw": 0, "aimPitch": 15,
           "grenadeType": "He", "throwButton": "Primary", "throwStrength": 1.0,
-          "gameTickRate": 64, "floorHeight": 0.0, "landingX": 900, "landingY": 0 },
-        { "name": "flat-30", "origin": {"x":0,"y":0,"z":64}, "aimYaw": 0, "aimPitch": 30,
+          "gameTickRate": 64, "floorHeight": 0.0, "landingX": 918, "landingY": 0 },
+        { "name": "flat-20", "origin": {"x":0,"y":0,"z":64}, "aimYaw": 0, "aimPitch": 20,
           "grenadeType": "He", "throwButton": "Primary", "throwStrength": 1.0,
-          "gameTickRate": 64, "floorHeight": 0.0, "landingX": 1100, "landingY": 0 },
-        { "name": "flat-60", "origin": {"x":0,"y":0,"z":64}, "aimYaw": 0, "aimPitch": 60,
+          "gameTickRate": 64, "floorHeight": 0.0, "landingX": 877, "landingY": 0 },
+        { "name": "flat-25", "origin": {"x":0,"y":0,"z":64}, "aimYaw": 0, "aimPitch": 25,
           "grenadeType": "He", "throwButton": "Primary", "throwStrength": 1.0,
-          "gameTickRate": 64, "floorHeight": 0.0, "landingX": 800, "landingY": 0 }
+          "gameTickRate": 64, "floorHeight": 0.0, "landingX": 829, "landingY": 0 }
       ]
     }
     """;
@@ -37,8 +37,8 @@ public class CalibrationRunnerTests
     {
         CalibrationDataSet data = CalibrationRunner.Deserialize(SampleJson);
         Assert.Equal(3, data.Samples.Count);
-        Assert.Equal("flat-45", data.Samples[0].Name);
-        Assert.Equal(45f, data.Samples[0].AimPitch);
+        Assert.Equal("flat-15", data.Samples[0].Name);
+        Assert.Equal(15f, data.Samples[0].AimPitch);
     }
 
     [Fact]

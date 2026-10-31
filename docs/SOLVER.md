@@ -355,6 +355,50 @@ stall a game tick for longer than 3 s of search.
 
 ---
 
+## 6b. How `!lf_find <seconds>` reaches this layer (plugin shell)
+
+The sliced search the game thread drives does not consume `SolveSeconds` directly; its length
+is the candidate supply. Two regressions hid that for a long time, and both are now covered
+by tests:
+
+1. **The duration never reached the request.** `FindAsync` read and cleared
+   `session.SolveSecondsOverride` *before* `BuildRequest` read the same session field, so
+   `request.SolveSeconds` was always null. `Find_WithExplicitSeconds_RaisesTheCandidateBudget_AndKeepsTheDuration`
+   pins the fix (`CommandService.Find.cs` passes the parsed duration through `request with { ... }`).
+2. **The candidate supply was a fixed cap.** Even with the duration attached, the search ended
+   when `MaxCandidates` candidates were evaluated (the shipped default: 64; the deployed
+   config: 4096) or when the coarse grid ran out of cells. A 60-second wall clock therefore
+   idled after roughly 19 s of simulation - the "5-second no-solution" reports players saw.
+
+The plugin shell now translates a duration into search work through `SolverBudget`
+(`plugins/CS2LineupFinder/Commands/SolverBudget.cs`), calibrated by two live-server
+measurements (~19.5 s for ~4700 candidates, ~5 s for ~1200 candidates, i.e. 210-240
+candidates per second; the conservative 210/s is used so a longer budget always buys
+strictly more search):
+
+- `CandidateBudget(seconds, configured)` = `max(seconds * 210/s, configured)` candidates, clamped to 100k.
+- `DensifiedSteps(...)` scales the configured grid steps so the coarse grid's cell count
+  tracks that budget in both directions - a short budget coarsens the grid, a long budget
+  densifies it (bounded by `GridCeiling` = 16384 cells and the 0.25 degree config clamp). The cell
+  arithmetic mirrors `LineupSolver.BuildCandidatesForLaunch` exactly, so the estimate here is
+  the count the solver enumerates.
+- `LineupSolver`'s grid safety ceiling yields to an explicit candidate budget
+  (`Max(GridSafetyLimit, request.MaxCandidates)`), otherwise a densified grid would be
+  silently truncated back to 4096 cells.
+
+The sliced search also exposes `Evaluated` now, and the plugin prints a progress line every
+256 evaluated candidates plus a budget note when a duration is given, so a long search shows
+a heartbeat instead of silence. Without an explicit duration nothing changes: the request
+carries null `SolveSeconds`, the configured cap, and the configured steps.
+
+When the wall clock expires the plugin calls `ILineupSearch.FinishNow()`, which stops the
+search and returns what it has already banked instead of dropping it: in-zone hits come back
+as `Success` (with a budget-expired note), otherwise the closest misses are reported as
+`Timeout` results - the angles and the impact marker of the closest landing - so a long
+search that was still narrowing still hands the player an aim point to nudge from.
+
+---
+
 ## 7. Every default, and why it is that value
 
 | Knob | Default | Justification |

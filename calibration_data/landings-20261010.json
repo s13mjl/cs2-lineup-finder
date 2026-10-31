@@ -1,0 +1,38 @@
+{
+  "samples": [
+    {
+      "Index": 1,
+      "Map": "de_mirage",
+      "Origin": {
+        "X": 79.631165,
+        "Y": -2047.5034,
+        "Z": -39.96875,
+        "Length2D": 2049.0513,
+        "Length": 2049.4412,
+        "LengthSquared": 4200209
+      },
+      "EyeHeight": 64,
+      "AimYaw": -162,
+      "AimPitch": -5,
+      "GrenadeType": "Smoke",
+      "PredictedImpact": {
+        "X": -957.3866,
+        "Y": -2378.0405,
+        "Z": -165.96117,
+        "Length2D": 2563.526,
+        "Length": 2568.8926,
+        "LengthSquared": 6599208.5
+      },
+      "ActualImpact": {
+        "X": -1108.688,
+        "Y": -2433.6382,
+        "Z": -165.96875,
+        "Length2D": 2674.282,
+        "Length": 2679.427,
+        "LengthSquared": 7179329.5
+      },
+      "Error": 161.19308,
+      "RecordedAt": "2026-10-10T06:22:50.4402551Z"
+    }
+  ]
+}

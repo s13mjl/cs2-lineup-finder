@@ -1,0 +1,106 @@
+{
+  "samples": [
+    {
+      "Index": 1,
+      "Map": "de_mirage",
+      "Origin": {
+        "X": 183.49892,
+        "Y": -1477.1948,
+        "Z": -175.96875,
+        "Length2D": 1488.5483,
+        "Length": 1498.9133,
+        "LengthSquared": 2246741.2
+      },
+      "EyeHeight": 64,
+      "AimYaw": -139.2,
+      "AimPitch": 11.7,
+      "GrenadeType": "Smoke",
+      "PredictedImpact": {
+        "X": -800.3269,
+        "Y": -2328.36,
+        "Z": -176.21216,
+        "Length2D": 2462.069,
+        "Length": 2468.3667,
+        "LengthSquared": 6092834.5
+      },
+      "ActualImpact": {
+        "X": -822.4844,
+        "Y": -2358.0156,
+        "Z": -173.96875,
+        "Length2D": 2497.3423,
+        "Length": 2503.3943,
+        "LengthSquared": 6266983
+      },
+      "Error": 37.01896,
+      "RecordedAt": "2026-10-09T10:01:41.6024225Z"
+    },
+    {
+      "Index": 2,
+      "Map": "de_mirage",
+      "Origin": {
+        "X": 502.93915,
+        "Y": -109.203995,
+        "Z": -160.003,
+        "Length2D": 514.6584,
+        "Length": 538.9566,
+        "LengthSquared": 290474.25
+      },
+      "EyeHeight": 64,
+      "AimYaw": -148.8,
+      "AimPitch": 18.9,
+      "GrenadeType": "Smoke",
+      "PredictedImpact": {
+        "X": -672.7224,
+        "Y": -828.049,
+        "Z": -263.28497,
+        "Length2D": 1066.8743,
+        "Length": 1098.8811,
+        "LengthSquared": 1207539.6
+      },
+      "ActualImpact": {
+        "X": -686.0562,
+        "Y": -884.6193,
+        "Z": -253.96875,
+        "Length2D": 1119.4751,
+        "Length": 1147.9219,
+        "LengthSquared": 1317724.6
+      },
+      "Error": 58.120483,
+      "RecordedAt": "2026-10-09T10:03:00.8444568Z"
+    },
+    {
+      "Index": 3,
+      "Map": "de_mirage",
+      "Origin": {
+        "X": -91.31061,
+        "Y": -332.0716,
+        "Z": -159.96875,
+        "Length2D": 344.39682,
+        "Length": 379.73566,
+        "LengthSquared": 144199.17
+      },
+      "EyeHeight": 64,
+      "AimYaw": -166.5,
+      "AimPitch": 15.1,
+      "GrenadeType": "Smoke",
+      "PredictedImpact": {
+        "X": -1181.9412,
+        "Y": -633.304,
+        "Z": -167.69023,
+        "Length2D": 1340.9172,
+        "Length": 1351.3618,
+        "LengthSquared": 1826178.9
+      },
+      "ActualImpact": {
+        "X": -1191.1335,
+        "Y": -630.13257,
+        "Z": -165.96875,
+        "Length2D": 1347.5408,
+        "Length": 1357.723,
+        "LengthSquared": 1843411.9
+      },
+      "Error": 9.7240925,
+      "RecordedAt": "2026-10-09T10:08:34.4253973Z"
+    }
+  ]
+}

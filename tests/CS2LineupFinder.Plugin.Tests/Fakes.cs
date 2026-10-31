@@ -189,4 +189,10 @@ internal sealed class StuckSimulator : ITrajectorySimulator
         IWorldGeometry world,
         CancellationToken cancellationToken = default)
             => Task.FromException<SolverOutcome>(new InvalidOperationException("solver exploded"));
+
+    /// <inheritdoc />
+    public ILineupSearch? BeginLineupSearch(
+        LineupRequest request,
+        ILineupSolver solver,
+        IWorldGeometry world) => null;
 }

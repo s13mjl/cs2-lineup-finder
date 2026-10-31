@@ -5,6 +5,7 @@ using System.IO;
 using System.Threading.Tasks;
 using CS2LineupFinder.Contracts;
 using CS2LineupFinder.Plugin.Abstractions;
+using CS2LineupFinder.Plugin.Calibration;
 using CS2LineupFinder.Plugin.Catalog;
 using CS2LineupFinder.Plugin.Commands;
 using CS2LineupFinder.Plugin.Config;
@@ -12,12 +13,15 @@ using CS2LineupFinder.Plugin.Game;
 using CS2LineupFinder.Plugin.Persistence;
 using CS2LineupFinder.Plugin.Simulation;
 using CS2LineupFinder.Plugin.State;
+using CS2LineupFinder.Plugin.Telemetry;
 using CS2LineupFinder.Plugin.Visuals;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
+using CounterStrikeSharp.API.Modules.Memory;
 using CounterStrikeSharp.API.Modules.Menu;
+using CounterStrikeSharp.API.Modules.Events;
 using CounterStrikeSharp.API.Modules.Timers;
 using CounterStrikeSharp.API.Modules.Utils;
 using Microsoft.Extensions.Logging;
@@ -38,16 +42,32 @@ namespace CS2LineupFinder.Plugin;
 /// also what makes the acceptance criteria testable without a game server.
 ///
 /// Chat aliases need no code: CounterStrikeSharp rewrites <c>!lf_zone r 200</c> to
-/// <c>css_lf_zone r 200</c> and dispatches it here, which is why the usage text in
-/// every <see cref="CommandHelperAttribute"/> names the <c>lf_</c> form.
-/// </remarks>
-public sealed class LineupFinderPlugin : BasePlugin
-{
-    private ServiceGraph? _services;
+    /// <c>css_lf_zone r 200</c> and dispatches it here, which is why the usage text in
+    /// every <see cref="CommandHelperAttribute"/> names the <c>lf_</c> form.
+    /// </remarks>
+    public sealed class LineupFinderPlugin : BasePlugin
+    {
+        private ServiceGraph? _services;
+
+        private int _startupReplayDelayTicks;
+
+        private int _pawnProbeDelayTicks;
+
+        private int _pawnProbeAttempts;
 
     private MapCatalog? _catalog;
 
     private string _loadError = string.Empty;
+
+    private GrenadeTelemetryRecorder? _telemetry;
+    private int _telemetryIndex;
+    private Vec3? _calibrationLaunchPosition;
+    private Vec3? _calibrationLaunchVelocity;
+    private long _calibrationLaunchTickMs;
+    private long _calibrationLaunchSuggestionNumber;
+    private float _telemetryTickTime;
+    private int _lastEngineTick = -1;
+    private CHandle<CBaseEntity>? _telemetryEntity;
 
     /// <inheritdoc />
     public override string ModuleName => "CS2 Line-up Finder";
@@ -87,6 +107,14 @@ public sealed class LineupFinderPlugin : BasePlugin
             // env_beam reaches a client; otherwise each beam message fails to parse
             // and the client eventually disconnects with an overflow error.
             RegisterListener<Listeners.OnServerPrecacheResources>(OnServerPrecacheResources);
+
+            // CS2 1.41.9.0 moved the code the chat trigger hook attaches to, so the
+            // game-event plumbing CounterStrikeSharp builds on it died with the
+            // update: chat reaches the console log, but no plugin sees it. The
+            // player_chat game event still fires, so forward our own aliases from
+            // here until the upstream signature fix ships. See OnChatBridge.
+            RegisterEventHandler<EventPlayerChat>(OnChatBridge);
+            RegisterEventHandler<EventSmokegrenadeDetonate>(OnSmokeDetonated);
 
             Logger.LogInformation(
                 "CS2LineupFinder loaded: {Config} {Trace} {Core}",
@@ -144,6 +172,213 @@ public sealed class LineupFinderPlugin : BasePlugin
         manifest.AddResource(BeamRenderer.DefaultSprite);
     }
 
+    /// <summary>Counter for calibration sample names.</summary>
+    /// <summary>
+    /// Handles the smoke-blooms event: pairs the real detonation with the
+    /// suggestion the player was given, records a calibration sample and reports
+    /// the miss distance. This is the ground truth feed for parameter fitting.
+    /// </summary>
+    private HookResult OnSmokeDetonated(EventSmokegrenadeDetonate @event, GameEventInfo info)
+    {
+        try
+        {
+            Logger.LogInformation(
+                "CS2LineupFinder: smoke detonated at ({X:0.#}, {Y:0.#}, {Z:0.#})",
+                @event.X, @event.Y, @event.Z);
+
+            FlushTelemetry(new Vec3(@event.X, @event.Y, @event.Z));
+
+            var services = _services;
+            var thrower = @event.Userid;
+            if (services is null || thrower is null)
+            {
+                return HookResult.Continue;
+            }
+ 
+            var slot = thrower.Slot;
+            var pending = services.Commands.TakeSuggestionForCalibration(slot, GrenadeType.Smoke);
+            if (pending is null)
+            {
+                return HookResult.Continue;
+            }
+ 
+            var impact = new Vec3(@event.X, @event.Y, @event.Z);
+
+            // The throw-time feet position is what the prediction was based on;
+            // the pawn has usually moved again by the time the smoke detonates,
+            // so reading the pawn here would corrupt the sample.
+            Vec3 feet = pending.Origin;
+
+            // Pair the launch capture with this sample only when BOTH refer to
+            // the same suggestion and the detonation arrived within one long
+            // smoke flight (512 ticks = 8 s; telemetry-001's longest recorded
+            // flight was 5.78 s, so the previous 4 s window truncated long lobs
+            // and silently fell back to the synthesised launch). Anything else
+            // is a stale capture from an unrelated grenade and must not
+            // contaminate the sample; the synthesised-launch fallback stays
+            // correct for stationary throws.
+            Vec3? launchPosition = null;
+            Vec3? launchVelocity = null;
+            long nowMs = Environment.TickCount64;
+            if (LineupFinderPlugin.IsLaunchCaptureUsable(
+                    _calibrationLaunchTickMs,
+                    _calibrationLaunchSuggestionNumber,
+                    nowMs,
+                    pending))
+            {
+                launchPosition = _calibrationLaunchPosition;
+                launchVelocity = _calibrationLaunchVelocity;
+            }
+
+            _calibrationLaunchPosition = null;
+            _calibrationLaunchVelocity = null;
+            _calibrationLaunchTickMs = 0;
+            _calibrationLaunchSuggestionNumber = 0;
+
+            // Continue the day-file numbering across restarts: the calibrator
+            // pre-loads today's samples, so the next index is Count + 1.
+            int index = services.Landings.Count + 1;
+            var sample = services.Landings.Record(
+                index,
+                Server.MapName ?? string.Empty,
+                feet,
+                pending.EyeHeight,
+                pending,
+                impact,
+                pending.ReleasePosition,
+                launchPosition,
+                launchVelocity,
+                pending.SuggestionNumber);
+ 
+            if (sample is not null)
+            {
+                services.Commands.Reply(
+                    slot,
+                    Phrases.Id.CalibrationSample,
+                    sample.Error,
+                    services.Landings.Count);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning("CS2LineupFinder: landing capture failed: {Message}", ex.Message);
+        }
+ 
+        return HookResult.Continue;
+    }
+
+    /// <summary>
+    /// Closes out the live telemetry capture, if any. Runs on the game thread
+    /// from the detonation event, so no extra synchronisation is needed.
+    /// </summary>
+    private void FlushTelemetry(Vec3 endPosition)
+    {
+        var recorder = _telemetry;
+        if (recorder is null)
+        {
+            return;
+        }
+
+        _telemetry = null;
+        _telemetryEntity = null;
+        _telemetryIndex++;
+        recorder.Flush(_telemetryIndex, endPosition);
+    }
+
+    /// <summary>Converts a CSSharp vector into the contract vector.</summary>
+    private static Vec3 ToContract(Vector v) => new(v.X, v.Y, v.Z);
+
+    /// <summary>
+    /// Writes the live projectile's own collision-filter fields to the log once
+    /// per capture: the values the engine gave the grenade decide which trace
+    /// mask the simulator must use, so they are recorded verbatim.
+    /// </summary>
+    private void LogGrenadeCollisionFilter(CBaseEntity entity)
+    {
+        Logger.LogInformation(
+            "CS2LineupFinder: {Text}",
+            Telemetry.GrenadeCollisionFilterDump.Describe(entity));
+    }
+
+    /// <summary>
+    /// Finds the live smoke projectile and records its server-side position and
+    /// velocity. Entity spawn fires before our listener sees the map, so the
+    /// recorder attaches lazily from the tick loop: once per tick the entity
+    /// list is scanned only while no capture is active, which is the idle state
+    /// 99% of the time.
+    /// </summary>
+    private void TickTelemetry(int engineTick)
+    {
+        if (_telemetry is not null)
+        {
+            var entity = _telemetryEntity?.Get()?.As<CBaseEntity>();
+            if (entity is null || !entity.IsValid)
+            {
+                // The grenade vanished without a detonate event (map change,
+                // round restart, admin kill): close the capture anyway.
+                var orphan = _telemetry;
+                _telemetry = null;
+                _telemetryIndex++;
+                Logger.LogInformation(
+                    "CS2LineupFinder: telemetry entity lost after {Count} ticks, flushing",
+                    orphan.Count);
+                orphan.Flush(_telemetryIndex, Vec3.Zero);
+                return;
+            }
+
+            // Real server tick interval, not an assumed 64: the 2026-10-15
+            // captures arrived at a 128 Hz cadence, and the fitted gravity only
+            // reads 320 u/s^2 once the time axis matches that cadence.
+            _telemetryTickTime += NativeAPI.GetTickInterval();
+            _telemetry.Record(
+                _telemetryTickTime,
+                ToContract(entity.AbsOrigin!),
+                ToContract(entity.AbsVelocity!),
+                engineTick);
+            return;
+        }
+
+        // Idle: look for a freshly thrown smoke projectile to attach to.
+        var spawned = Utilities.FindAllEntitiesByDesignerName<CBaseEntity>("smokegrenade_projectile");
+        foreach (var candidate in spawned)
+        {
+            var velocity = candidate.AbsVelocity;
+            if (candidate.IsValid && velocity is not null
+                && ((velocity.X * velocity.X) + (velocity.Y * velocity.Y) + (velocity.Z * velocity.Z)) > 1f)
+            {
+                _telemetry = new GrenadeTelemetryRecorder(
+                    Path.Combine(_services!.Root, "data", "telemetry"),
+                    text => Logger.LogInformation("CS2LineupFinder: {Text}", text));
+                // CHandle's IntPtr constructor stores the argument as the ADDRESS of
+                // a raw handle value (CHandle.cs: Marshal.ReadInt32(_pointer)), so
+                // passing the entity object pointer here made every later lookup
+                // read the entity vtable bytes as a handle and fail. EntityHandle.Raw
+                // is the real 32-bit index+serial value read from the entity's own
+                // CEntityIdentity, which is what GetEntityByHandle compares against.
+                _telemetryEntity = new CHandle<CBaseEntity>(candidate.EntityHandle.Raw);
+                _telemetryTickTime = 0f;
+                Vec3 launchOrigin = ToContract(candidate.AbsOrigin!);
+                Vec3 launchVelocity = ToContract(velocity);
+                _telemetry.Record(0f, launchOrigin, launchVelocity, engineTick);
+
+                // Keep the measured launch state for the calibration sample: the
+                // projectile's own row-0 state is the only launch reconstruction
+                // that includes the thrower's inherited velocity (telemetry-002
+                // row 0 measured 678.63 u/s vs the 675 full-throw constant).
+                _calibrationLaunchPosition = launchOrigin;
+                _calibrationLaunchVelocity = launchVelocity;
+                _calibrationLaunchTickMs = Environment.TickCount64;
+                _calibrationLaunchSuggestionNumber = _services!.Commands.MaxPendingSuggestionNumber();
+                LogGrenadeCollisionFilter(candidate);
+                Logger.LogInformation(
+                    "CS2LineupFinder: telemetry attached to smoke projectile (speed {Speed:0.#} u/s, handle {Handle:X8})",
+                    velocity.Length(),
+                    candidate.EntityHandle.Raw);
+                break;
+            }
+        }
+    }
+ 
     /// <summary>Reads the catalogue for the new map and resets every player's session.</summary>
     /// <param name="mapName">Map that just started.</param>
     [ListenerHandler<Listeners.OnMapStart>]
@@ -154,9 +389,17 @@ public sealed class LineupFinderPlugin : BasePlugin
         {
             return;
         }
-
+ 
         try
         {
+            // setang is cheat-protected: without sv_cheats 1 the client-side view
+            // snap silently does nothing. The practice server enables cheats on
+            // purpose; the config switch keeps it opt-in.
+            if (Config.SvCheats)
+            {
+                Server.ExecuteCommand("sv_cheats 1");
+            }
+
             var catalog = MapCatalog.Load(services.Root);
             _catalog = catalog;
             services.Commands.MapEnabled = catalog.IsEnabled(mapName);
@@ -182,10 +425,96 @@ public sealed class LineupFinderPlugin : BasePlugin
                 catalog.Describe(),
                 catalog.PointsFor(mapName).Count,
                 services.Commands.MapEnabled);
+
+            // The per-tick timer is registered during plugin load, which on a
+            // cold boot happens BEFORE map start; STOP_ON_MAPCHANGE then kills
+            // it and searches would stay dead until the next plugin reload.
+            // Re-register it here: the previous instance died with the old map,
+            // so exactly one live tick loop exists per map either way.
+            AddTickTimer(1, OnTick, TimerFlags.REPEAT | TimerFlags.STOP_ON_MAPCHANGE);
+
+            // Calibration replay on the live map: once the engine has finished
+            // spawning, replay every recorded landing on this map through the
+            // current physics so the log always carries a fresh fidelity check.
+            // 64 Hz: one tick is 1/64 s. (The 0.064 divisor previously used here
+            // made every "20 s" delay fire after ~5 s of wall time.)
+            _startupReplayDelayTicks = (int)(25f * 64f);
+            _pawnProbeDelayTicks = (int)(25f * 64f);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "CS2LineupFinder could not read the map catalogue for {Map}.", mapName);
+        }
+    }
+
+    private void RunStartupReplay()
+    {
+        var services = _services;
+        if (services is null)
+        {
+            return;
+        }
+
+        try
+        {
+            // Tick-by-tick forensic replay first: it pins the first divergent tick
+            // of each recorded capture against the live map, which is the evidence
+            // the end-to-end sample errors below are then interpreted against.
+            services.Commands.ReplayTelemetryToLog(
+                System.IO.Path.Combine(services.Root, "data", "telemetry"),
+                services.World,
+                message => Logger.LogInformation("CS2LineupFinder: {Replay}", message));
+            services.Commands.ReplayCalibrationToLog(
+                System.IO.Path.Combine(services.Root, "data", "calibration"),
+                Server.MapName ?? string.Empty,
+                services.World,
+                message => Logger.LogInformation("CS2LineupFinder: {Replay}", message));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning("CS2LineupFinder: startup replay failed: {Message}", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Asks a live pawn which collision layers it reports. Bots only exist once
+    /// a player has joined, so this retries on its own short timer until one is
+    /// found (or half an hour passes) instead of tying the telemetry replay to
+    /// the server's player schedule.
+    /// </summary>
+    private void RunPawnProbe()
+    {
+        var services = _services;
+        if (services is null)
+        {
+            return;
+        }
+
+        try
+        {
+            bool pawnFound = false;
+            foreach (string line in Diagnostics.PawnCollisionProbe.Run(services.Trace))
+            {
+                Logger.LogInformation("CS2LineupFinder: {Probe}", line);
+                if (line.StartsWith("pawn probe: pawn slot", StringComparison.Ordinal))
+                {
+                    pawnFound = true;
+                }
+            }
+
+            if (pawnFound)
+            {
+                _pawnProbeDelayTicks = 0;
+                return;
+            }
+
+            _pawnProbeAttempts++;
+            _pawnProbeDelayTicks = _pawnProbeAttempts <= 600 ? (int)(3f * 64f) : 0;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning("CS2LineupFinder: pawn probe failed: {Message}", ex.Message);
+            _pawnProbeDelayTicks = 0;
         }
     }
 
@@ -259,6 +588,7 @@ public sealed class LineupFinderPlugin : BasePlugin
 
         try
         {
+            services.Commands.DropSearch(playerSlot);
             services.Cancellations.Cancel(playerSlot);
             services.Sessions.Remove(playerSlot);
         }
@@ -322,10 +652,28 @@ public sealed class LineupFinderPlugin : BasePlugin
     /// <summary>Searches for a line-up and shows the result.</summary>
     /// <param name="player">Calling player, or <see langword="null"/> for the console.</param>
     /// <param name="commandInfo">Command the player typed.</param>
-    [ConsoleCommand("css_lf_find", "Searches for a line-up and draws the result.")]
-    [CommandHelper(minArgs: 0, usage: CommandSpec.NoArguments)]
+   [ConsoleCommand("css_lf_find", "Searches for a line-up and draws the result.")]
+    [CommandHelper(minArgs: 0, usage: "[seconds]")]
     public void OnFindCommand(CCSPlayerController? player, CommandInfo commandInfo)
-        => GuardAsync(commandInfo, static context => context.FindAsync());
+        => GuardAsync(commandInfo, static context =>
+        {
+            double? seconds = null;
+            var arg = context.First;
+            if (arg is not null)
+            {
+                if (!double.TryParse(arg, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var parsed) ||
+                    parsed <= 0d || parsed > 120d)
+                {
+                   context.Service.Reply(context.PlayerSlot, Phrases.Id.SearchSecondsUsage);
+                    return Task.CompletedTask;
+                }
+
+                seconds = parsed;
+            }
+
+            return context.FindAsync(seconds);
+        });
 
     /// <summary>Saves the currently selected result under a name.</summary>
     /// <param name="player">Calling player, or <see langword="null"/> for the console.</param>
@@ -390,6 +738,46 @@ public sealed class LineupFinderPlugin : BasePlugin
         context.Service.RedrawLastResult(slot);
     });
 
+    /// <summary>Points the player's view at the best result, or the given one.</summary>
+    /// <param name="player">Calling player, or <see langword="null"/> for the console.</param>
+    /// <param name="commandInfo">Command the player typed.</param>
+    [ConsoleCommand("css_lf_aim", "Points your view at a result: the best one, or the given index.")]
+    [CommandHelper(minArgs: 0, usage: "[index]")]
+    public void OnAimCommand(CCSPlayerController? player, CommandInfo commandInfo) => Guard(commandInfo, context =>
+    {
+        var slot = context.PlayerSlot;
+        var session = context.Service.Sessions.GetOrCreate(slot);
+        var raw = context.First;
+        if (!string.IsNullOrWhiteSpace(raw))
+        {
+            if (!int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var chosen))
+            {
+                context.Service.Reply(slot, Phrases.Id.UnknownOption, raw, Option.UsageFor("css_lf_aim"));
+                return;
+            }
+
+            var total = session.LastOutcome?.Results.Count ?? 0;
+            if (chosen < 1 || chosen > total)
+            {
+                context.Service.Reply(slot, Phrases.Id.UnknownOption, chosen.ToString(CultureInfo.InvariantCulture), Option.UsageFor("css_lf_aim"));
+                return;
+            }
+
+            session.SelectedResultIndex = chosen - 1;
+            context.Service.RedrawLastResult(slot);
+        }
+
+        var solution = session.SelectedSolution;
+        if (solution is null)
+        {
+            context.Service.Reply(slot, Phrases.Id.NothingToSave);
+            return;
+        }
+
+        context.Service.AimAtSolution(slot, solution);
+        context.Service.Reply(slot, Phrases.Id.Aimed, CommandParser.RoundAngle(solution.Yaw), CommandParser.RoundPlayerPitch(solution.Pitch));
+    });
+
     /// <summary>Clears the player's throw point, landing zone and results.</summary>
     /// <param name="player">Calling player, or <see langword="null"/> for the console.</param>
     /// <param name="commandInfo">Command the player typed.</param>
@@ -412,6 +800,163 @@ public sealed class LineupFinderPlugin : BasePlugin
         context.Service.ApplyConfig(reloaded);
         context.Service.Reply(context.PlayerSlot, Phrases.Id.ConfigReloaded, reloaded.ToString());
     });
+
+    /// <summary>Replays recorded calibration landings against the live map.</summary>
+    /// <param name="player">Calling player, or <see langword="null"/> for the console.</param>
+    /// <param name="commandInfo">Command the player typed.</param>
+    [ConsoleCommand("css_lf_replay", "Replays calibration landings; add a telemetry number to forensic-replay that capture tick by tick.")]
+    [CommandHelper(minArgs: 0, usage: "[telemetryIndex]")]
+    public void OnReplayCommand(CCSPlayerController? player, CommandInfo commandInfo) => Guard(commandInfo, context =>
+    {
+        if (int.TryParse(context.First, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out int telemetryIndex)
+            && telemetryIndex > 0)
+        {
+            // Forensic mode: replay the recorded engine states tick by tick on the
+            // live map so the first divergent tick pins down the trace mismatch.
+            context.Service.ReplayTelemetryLiveMap(
+                context.PlayerSlot,
+                context.World,
+                System.IO.Path.Combine(context.Root, "data", "telemetry"),
+                telemetryIndex);
+            return;
+        }
+
+        context.Service.ReplayCalibration(
+            context.PlayerSlot,
+            context.World,
+            System.IO.Path.Combine(context.Root, "data", "calibration"));
+    });
+
+    /// <summary>
+    /// Measures what the engine fills into a trace result, so the simulator reads
+    /// the field the engine actually means rather than the one it assumed.
+    /// </summary>
+    /// <remarks>
+    /// The managed <c>Trace</c> type marshals <c>CGameTrace</c> without interpreting
+    /// it, so the engine owns the meaning of every field. This command sweeps a
+    /// known hull over known ground and prints the raw values: on flat ground the
+    /// swept-shape origin and the exact surface contact point differ by exactly the
+    /// hull radius along the surface normal, so the printed separation settles
+    /// which field is which. It is a diagnostic, it changes no state, and it is the
+    /// only reason a geometry bug can be attributed to a cause instead of guessed.
+    /// </remarks>
+    /// <param name="player">Calling player, or <see langword="null"/> for the console.</param>
+    /// <param name="commandInfo">Command the player typed.</param>
+    [ConsoleCommand("css_lf_probe", "Reports raw engine trace fields for the ground under your feet.")]
+    [CommandHelper(minArgs: 0, usage: "[hullRadius]")]
+    public void OnProbeCommand(CCSPlayerController? player, CommandInfo commandInfo)
+    {
+        var services = _services;
+        if (services is null)
+        {
+            commandInfo.ReplyToCommand("[LineupFinder] Unavailable: " +
+                (string.IsNullOrEmpty(_loadError) ? "the plugin is not loaded" : _loadError));
+            return;
+        }
+
+        var slot = commandInfo.CallingPlayer?.Slot ?? -1;
+        if (slot < 0)
+        {
+            commandInfo.ReplyToCommand("[LineupFinder] This command runs on a player, not the server console.");
+            return;
+        }
+
+        var probe = TraceBackendFactory.AsProbe(services.Trace);
+        if (probe is null)
+        {
+            commandInfo.ReplyToCommand($"[LineupFinder] trace backend '{services.Trace.Name}' cannot report raw trace fields.");
+            return;
+        }
+
+        var pawn = EnginePlayers.Pawn(slot);
+        if (pawn is null)
+        {
+            commandInfo.ReplyToCommand("[LineupFinder] No live pawn.");
+            return;
+        }
+
+        var radius = 2f;
+        if (commandInfo.ArgCount > 1 && float.TryParse(commandInfo.ArgByIndex(1), out var parsed) && parsed > 0f)
+        {
+            radius = parsed;
+        }
+
+        var origin = pawn.AbsOrigin!;
+        var feet = new Vec3(origin.X, origin.Y, origin.Z);
+
+        // Three sweeps over the same ground, each isolating one field: straight
+        // down (normal is up, so every horizontal field is a pure noise floor),
+        // then down-and-sideways at a shallow angle where the surface point and the
+        // swept origin separate horizontally as well as vertically. Comparing the
+        // two tells the two apart on any surface, not just a flat one.
+        var probes = new (string Label, Vec3 From, Vec3 To)[]
+        {
+            ("down", feet + new Vec3(0f, 0f, 8f), feet + new Vec3(0f, 0f, -64f)),
+            ("shallow", feet + new Vec3(0f, 0f, 8f), feet + new Vec3(32f, 0f, -64f)),
+            ("line", feet + new Vec3(0f, 0f, 8f), feet + new Vec3(0f, 0f, -64f)),
+        };
+
+        foreach (var (label, from, to) in probes)
+        {
+            var hull = label == "line" ? 0f : radius;
+            var line = probe.DescribeTrace(from, to, hull);
+            Logger.LogInformation("CS2LineupFinder: {Text}", line);
+            commandInfo.ReplyToCommand(line);
+        }
+    }
+
+    /// <summary>
+    /// Forwards chat aliases such as <c>!lf_zone circle 5</c> to their console
+    /// commands over the <c>player_chat</c> game event, which still fires when the
+    /// upstream chat trigger hook does not.
+    /// </summary>
+    /// <remarks>
+    /// The message is re-issued as a client command on the game thread, so it flows
+    /// through the engine's own command dispatch exactly as if the player had typed
+    /// <c>css_lf_zone circle 5</c> - no trigger signatures involved. Messages that
+    /// are not one of this plugin's aliases are ignored, and the whole bridge is
+    /// switchable through <c>general.chatBridge</c> in config.toml so it can be
+    /// turned off once CounterStrikeSharp's own chat pipeline works again.
+    /// </remarks>
+    private HookResult OnChatBridge(EventPlayerChat @event, GameEventInfo info)
+    {
+        var services = _services;
+        if (services is null || !services.Commands.Config.ChatBridge)
+        {
+            return HookResult.Continue;
+        }
+
+        var text = @event.Text;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return HookResult.Continue;
+        }
+
+        var trimmed = text.Trim();
+        if (trimmed.Length < 2 || trimmed[0] is not ('!' or '/' or '.'))
+        {
+            return HookResult.Continue;
+        }
+
+        // "!lf_zone circle 5" -> "lf_zone"; only aliases this plugin owns cross the
+        // bridge, everything else stays with the engine and other plugins.
+        var name = Commands.CommandUsage.CommandNameFromChat(trimmed);
+        if (!CommandSpec.IsChatAlias(name))
+        {
+            return HookResult.Continue;
+        }
+
+        var userId = @event.Userid;
+        var command = "css_" + trimmed[1..];
+        services.Dispatcher.Post(() =>
+        {
+            var player = Utilities.GetPlayerFromUserid(userId);
+            player?.ExecuteClientCommandFromServer(command);
+        });
+
+        return HookResult.Continue;
+    }
 
     /// <summary>Builds the menu a player sees, so a click always reflects live state.</summary>
     /// <param name="playerSlot">Engine slot of the player.</param>
@@ -577,9 +1122,54 @@ public sealed class LineupFinderPlugin : BasePlugin
         }
 
         var slot = player.Slot;
+        RefreshThrowOriginForSearch(services, slot);
         _ = RunGuardedAsync(
             slot,
             () => services.Commands.FindAsync(slot, services.World, services.Cancellations.TokenFor(slot)));
+    }
+
+    /// <summary>
+    /// Re-reads the thrower pose right before a menu-triggered search, exactly
+    /// like the chat command path does, so the solve always starts from the pose
+    /// the player is holding now rather than the pose held when they marked.
+    /// </summary>
+    private static void RefreshThrowOriginForSearch(ServiceGraph services, int slot)
+    {
+        var session = services.Sessions.GetOrCreate(slot);
+        if (session.ThrowPoint is null)
+        {
+            return;
+        }
+
+        var origin = services.Movement.GetThrowOrigin(slot, session.ThrowMode);
+        if (origin is null)
+        {
+            return;
+        }
+
+        session.ThrowPoint = origin.Feet;
+        session.EyePoint = origin.Eyes;
+        session.ThrowVelocity = origin.Velocity;
+    }
+
+    /// <summary>
+    /// Decides whether the stored launch capture may be paired with the pending
+    /// suggestion. Extracted as a pure function so the pairing rules are unit
+    /// testable: same suggestion number (a second find replaces the first, so a
+    /// grenade still airborne from the first must never pair with it), and the
+    /// detonation must arrive within one long smoke flight of the capture
+    /// (telemetry-001's longest flight was 5.78 s, so the window is 8 s).
+    /// </summary>
+    internal static bool IsLaunchCaptureUsable(
+        long captureTickMs,
+        long captureSuggestionNumber,
+        long nowMs,
+        PendingSuggestion pending)
+    {
+        return captureTickMs != 0
+            && captureSuggestionNumber != 0
+            && captureSuggestionNumber == pending.SuggestionNumber
+            && nowMs - captureTickMs <= 8_000;
     }
 
     private void ListFromMenu(CCSPlayerController player)
@@ -609,10 +1199,38 @@ public sealed class LineupFinderPlugin : BasePlugin
     /// <summary>Drains work queued for the game thread; runs once per tick.</summary>
     private void OnTick()
     {
+        // The 2026-10-15 telemetry captures caught OnTick firing twice per engine
+        // tick (every recorded state appeared exactly twice, stretching the time
+        // axis 2x and halving the least-squares gravity fit to 160). Guard every
+        // entry with the engine tick counter so duplicate firings are inert.
+        int engineTick = NativeAPI.GetTickCount();
+        if (engineTick == _lastEngineTick)
+        {
+            return;
+        }
+
+        _lastEngineTick = engineTick;
+
         try
         {
+            _services?.Commands.TickSearches();
+            _services?.Beams.Tick();
             _services?.Visuals.Step();
             _services?.Dispatcher.Drain();
+            TickTelemetry(engineTick);
+
+            int delay = _startupReplayDelayTicks;
+            if (delay > 0 && System.Threading.Interlocked.Decrement(ref _startupReplayDelayTicks) == 0)
+            {
+                RunStartupReplay();
+            }
+
+            int probeDelay = _pawnProbeDelayTicks;
+            if (probeDelay > 0 && System.Threading.Interlocked.Decrement(ref _pawnProbeDelayTicks) == 0)
+            {
+                RunPawnProbe();
+            }
+
         }
         catch (Exception ex)
         {
@@ -785,16 +1403,23 @@ public sealed class LineupFinderPlugin : BasePlugin
         {
             _plugin = plugin;
             Root = root;
-            Report = new MessageSink(plugin);
-            Dispatcher = new GameThreadDispatcher { OnError = ex => plugin.Logger.LogWarning("CS2LineupFinder: queued work failed: {Message}", ex.Message) };
+        Dispatcher = new GameThreadDispatcher { OnError = ex => plugin.Logger.LogWarning("CS2LineupFinder: queued work failed: {Message}", ex.Message) };
+        Report = new MessageSink(plugin, Dispatcher);
             Trace = TraceBackendFactory.Create(Report);
-            Tracer = new GameWorldTracer(Trace, () => plugin.Config);
+            Tracer = new GameWorldTracer(Trace, () => plugin.Config)
+            {
+                Log = text => plugin.Logger.LogInformation("CS2LineupFinder: {Text}", text),
+            };
             World = new GameWorldGeometry(Tracer) { Config = () => plugin.Config };
             Beams = new BeamRenderer(Dispatcher, () => plugin.Config, Report);
             Visuals = new EngineVisuals(Dispatcher, Beams, () => plugin.Config);
             Sessions = new SessionStore();
             Lineups = LineupRepository.ForPluginRoot(root);
-            Simulator = new SimulatorBridge(() => TimeSpan.FromSeconds(plugin.Config.SolveTimeoutSeconds));
+            Landings = new LandingCalibrator(Path.Combine(root, "data", "calibration"));
+            Simulator = new SimulatorBridge(() => TimeSpan.FromSeconds(plugin.Config.SolveTimeoutSeconds))
+            {
+                Config = () => plugin.Config,
+            };
             Cancellations = new CancellationRegistry();
             Movement = new GameMovementProvider(Tracer, () => plugin.Config);
             Commands = new CommandService(
@@ -810,7 +1435,8 @@ public sealed class LineupFinderPlugin : BasePlugin
                 {
                     plugin.Config = config;
                     return config;
-                });
+                },
+                AimPlayer);
         }
 
         internal string Root { get; }
@@ -833,12 +1459,55 @@ public sealed class LineupFinderPlugin : BasePlugin
 
         internal LineupRepository Lineups { get; }
 
+        internal LandingCalibrator Landings { get; }
+
         internal SimulatorBridge Simulator { get; }
 
         internal CancellationRegistry Cancellations { get; }
 
         internal GameMovementProvider Movement { get; }
-
+ 
+        /// <summary>
+        /// Snaps a player's view onto the given contract angles. Runs through the
+        /// dispatcher so a call from a tick slice or a queued reply still lands on
+        /// the game thread, which owns every player entity.
+        /// </summary>
+        /// <remarks>
+        /// The turn is executed by the client itself via <c>setang</c>. CS2 makes the
+        /// client authoritative over its own camera: it re-derives its view from the
+        /// mouse every frame, so nothing the server writes into the pawn's view
+        /// fields (m_angEyeAngles, v_angle, m_ServerViewAngleChanges) survives long
+        /// enough to be seen, and Teleport rotates the whole pawn - which dragged the
+        /// eye offset to ground level and left players crawling. A client command is
+        /// the one channel that turns the real camera. <c>setang</c> is marked
+        /// cheat-protected, so the server runs with <c>sv_cheats 1</c>; on this
+        /// offline practice server that is acceptable. The sign flip is the single
+        /// mirror between the plugin's positive-up pitch convention and the engine's
+        /// positive-down one. Argument order matters and is easy to get wrong:
+        /// <c>setang</c> takes pitch first, yaw second. Swapping them puts the yaw
+        /// into the pitch slot, which the engine clamps to 89 degrees, so the camera
+        /// ends up staring straight up no matter what the solver asked for.
+        /// </remarks>
+        internal bool AimPlayer(int playerSlot, float yawDegrees, float pitchDegrees)
+        {
+            var player = EnginePlayers.Controller(playerSlot);
+            if (player is null || !player.IsValid)
+            {
+                return false;
+            }
+ 
+            Dispatcher.Post(() =>
+            {
+                player.ExecuteClientCommandFromServer(
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "setang {0:0.####} {1:0.####}",
+                        -pitchDegrees,
+                        yawDegrees));
+            });
+            return true;
+        }
+ 
         internal CommandService Commands { get; }
 
         /// <summary>One line describing which simulator and solver are in use.</summary>
@@ -858,6 +1527,11 @@ public sealed class LineupFinderPlugin : BasePlugin
         {
             ArgumentNullException.ThrowIfNull(config);
             _plugin.Config = config;
+            if (!Simulator.UsingStub)
+            {
+                CoreLoader.ApplyPhysicsOverrides(Simulator.Simulator, config, Report);
+            }
+
             return config;
         }
 
@@ -877,14 +1551,27 @@ public sealed class LineupFinderPlugin : BasePlugin
     private sealed class MessageSink : IPluginMessages
     {
         private readonly LineupFinderPlugin _plugin;
+        private readonly GameThreadDispatcher? _dispatcher;
 
-        internal MessageSink(LineupFinderPlugin plugin) => _plugin = plugin;
+        internal MessageSink(LineupFinderPlugin plugin, GameThreadDispatcher? dispatcher)
+        {
+            _plugin = plugin;
+            _dispatcher = dispatcher;
+        }
 
         /// <inheritdoc />
         public void Reply(int playerSlot, string text)
         {
             if (string.IsNullOrEmpty(text))
             {
+                return;
+            }
+
+            // Native calls must land on the game thread. An async continuation after
+            // ConfigureAwait(false) resumes on a worker thread, so hop back when needed.
+            if (_dispatcher is { } dispatcher && !dispatcher.IsGameThread)
+            {
+                dispatcher.Post(() => Reply(playerSlot, text));
                 return;
             }
 

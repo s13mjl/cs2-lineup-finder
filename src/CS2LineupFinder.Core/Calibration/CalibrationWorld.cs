@@ -80,7 +80,13 @@ public sealed class CalibrationWorld : IWorldGeometry
     private TraceHit TraceFloor(Vec3 origin, Vec3 direction, float maxDistance)
     {
         float floor = _floorHeight!.Value;
-        float dz = direction.Z;
+        // The simulator contract hands over a NORMALIZED direction plus a
+        // separate maxDistance, so distances along the ray are plain lengths.
+        // The old form divided by the raw z component and compared against 1,
+        // which is the fraction convention of a different call shape and made
+        // every sweep shorter than the remaining drop miss the floor entirely.
+        Vec3 dir = direction.Normalized();
+        float dz = dir.Z;
 
         // Only a downward sweep can reach a horizontal floor.
         if (dz > -1e-6f || origin.Z <= floor)
@@ -88,21 +94,18 @@ public sealed class CalibrationWorld : IWorldGeometry
             return new TraceHit(false, origin, Vec3.Zero, 1f);
         }
 
-        float t = (floor - origin.Z) / dz;
+        float distance = (floor - origin.Z) / dz;
 
-        // The floor is only reached within this sweep when t lands in [0, 1].
-        // Without this guard a sweep shorter than the remaining drop reports
-        // t > 1 and the contact point lands far beyond the sweep end, which
-        // teleports the projectile thousands of units downrange.
-        if (t < 0f || t > 1f)
+        // The floor is only reached within this sweep when the contact lands
+        // inside [0, maxDistance].
+        if (distance < 0f || distance > maxDistance)
         {
             return new TraceHit(false, origin, Vec3.Zero, 1f);
         }
 
-        float distance = maxDistance * t;
-        Vec3 position = origin + (direction * distance);
+        Vec3 position = origin + (dir * distance);
         position = new Vec3(position.X, position.Y, floor);
 
-        return new TraceHit(true, position, new Vec3(0f, 0f, 1f), t);
+        return new TraceHit(true, position, new Vec3(0f, 0f, 1f), distance / maxDistance);
     }
 }

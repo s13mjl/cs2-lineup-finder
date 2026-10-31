@@ -28,27 +28,68 @@ public readonly struct BounceResult
 /// <summary>
 /// Implements the contact rules for the projectile.
 ///
-/// Source, CS:GO <c>basecsgrenade_projectile.cpp :: ResolveFlyCollisionCustom</c>:
+/// MEASURED on CS2 (telemetry-001 + telemetry-002, per-tick velocity at 64 Hz,
+/// 7 world floor contacts): the engine reflects the WHOLE velocity vector about
+/// the contact normal, scales it by the restitution, then adds a small fixed
+/// impulse ALONG the normal:
+///
 /// <code>
-/// float flTotalElasticity = flGrenadeElasticity * flSurfaceElasticity;   // 0.45 for world
-/// PhysicsClipVelocity(vecVelocity, trace.plane.normal, vecAbsVelocity, 2.0f);
-/// vecAbsVelocity *= flTotalElasticity;
-/// if (trace.plane.normal.z > 0.7f) { /* floor: continue moving along the surface */ }
+/// v_post = mirror(v_in, n) * 0.45 + n * BounceNormalResidual
 /// </code>
-/// So the rule is a plain mirror about the normal followed by a 0.45 scale, with
-/// no surface-specific term. That matches the CS2 finding that every surface
-/// returns 0.45x the incoming speed.
+///
+/// Evidence for mirror-and-scale: all 14 tangential components across the 7
+/// world contacts satisfy post/pre = 0.4500000 to within CSV rounding (4e-7),
+/// and a mirror is an isometry, so a whole-vector scale is the only law that
+/// produces that without a separate tangential term.
+///
+/// Evidence for the additive residual: the normal component does NOT satisfy
+/// post/pre = 0.45. Writing vz_post = 0.45*|vz_pre| + C, C is constant within
+/// each capture (telemetry-001: -1.36094 across four contacts spanning 24..360
+/// u/s; telemetry-002: +2.26406 across three contacts spanning 40..209 u/s) yet
+/// differs between captures. GrenadeSimulator feeds the reflection the
+/// HALF-TICK-BOUNDARY speed (gravity is consumed in two quanta of g*dt/2 per
+/// tick; a first-half contact reflects the once-quantised speed, a second-half
+/// contact the twice-quantised speed). Under that input convention ONE residual
+/// value reproduces all 7 contacts to within CSV rounding:
+///
+/// <code>
+/// C(first-half contact)  = 0.45*2.5 - 2.5 + 0.0140625 = -1.3609375
+/// C(second-half contact) = 0.45*5.0 - 0   + 0.0140625 = +2.2640625
+/// </code>
+///
+/// Both captures agree on the same residual, which is the cross-check that
+/// separates it from the quantisation term. The residual is applied along the
+/// contact normal for non-floor surfaces as an extrapolation: no wall contact
+/// has been captured yet.
+///
+/// One contact in telemetry-002 (contact 8) returns 0.3364 on both tangential
+/// components instead of 0.45. That contact begins EMBEDDED in a
+/// PlayerClip+NpcClip+StaticLevel brush (engine IsAllSolid=1, Fraction=0 -
+/// measured with the live tracer); the impact point itself is still the plane
+/// floor under the brush, so the bounce law is unchanged and only the
+/// elasticity is scaled, by the measured
+/// <see cref="PhysicsParameters.ClipEmbeddedElasticityScale"/>. R4 gate plus
+/// the 2026-10-23 first-half gate: the scale applies if and only if the
+/// contact begins embedded, lands in the FIRST half of its tick (q=1), AND
+/// the post-restitution reflected speed exceeds
+/// <see cref="PhysicsParameters.EmbeddedScaleSpeedThreshold"/> - an earlier
+/// "first embedded contact only" rule was falsified by telemetry-001 row 128,
+/// where the FIRST embedded contact of the flight (152.6 u/s) is NOT scaled.
+/// The q gate was forced by the 1015 palace replay: its embedded first
+/// contact is q=2 and the engine kept 0.46 (762.5 -> 344.2 u/s), while the
+/// speed-only rule scaled it and produced a 132.8 u miss; with the q gate the
+/// live replay is 1.8 u. Detection is wired in GameWorldTracer, which reads
+/// the engine's IsAllSolid flag; GrenadeSimulator owns the q and speed gates.
 /// </summary>
 public static class BounceResolver
 {
     /// <summary>
-    /// Reflects <paramref name="velocity"/> about <paramref name="normal"/>, scales
-    /// by restitution, then applies tangential damping.
-    ///
-    /// A smoke's first ground contact takes extra tangential damping so it settles
-    /// near where it lands instead of skating across the floor. There is no Valve
-    /// source for this; it is flagged as Community in PHYSICS.md and calibration
-    /// can switch it off via <see cref="PhysicsParameters.SmokeExtraDampingEnabled"/>.
+    /// Reflects <paramref name="velocity"/> about <paramref name="normal"/>,
+    /// scales the WHOLE resulting vector by the effective elasticity, and adds
+    /// the measured normal residual. <paramref name="velocity"/> must already
+    /// include the half-tick gravity quantum (see GrenadeSimulator); that input
+    /// convention is what makes both observed deficit signatures fall out of the
+    /// single residual below. See the class documentation for the evidence.
     /// </summary>
     public static Vec3 Resolve(
         Vec3 velocity,
@@ -56,23 +97,25 @@ public static class BounceResolver
         bool onGround,
         GrenadeType type,
         PhysicsParameters parameters,
-        ref bool firstSmokeBounceDone)
+        ref bool firstSmokeBounceDone,
+        bool embeddedContact = false)
     {
         float restitution = parameters.Restitution.Value;
-        // Mirror about the normal, then scale: v - 2 (v.n) n, times restitution.
+        if (embeddedContact)
+        {
+            restitution *= parameters.ClipEmbeddedElasticityScale.Value;
+        }
+
+        // Mirror about the normal (PhysicsClipVelocity), scale the WHOLE vector
+        // by the effective elasticity, then add the measured residual impulse
+        // along the normal.
         Vec3 reflected = (velocity - (normal * (2f * Vec3.Dot(velocity, normal)))) * restitution;
+        reflected += normal * parameters.BounceNormalResidual.Value;
 
         if (!onGround)
         {
             return reflected;
         }
-
-        // Split into normal and tangential parts; damp only the tangential one.
-        float into = Vec3.Dot(reflected, normal);
-        Vec3 normalPart = normal * into;
-        Vec3 tangentPart = reflected - normalPart;
-
-        float retain = parameters.GroundFriction.Value;
 
         bool smoke = type == GrenadeType.Smoke
             && parameters.SmokeExtraDampingEnabled.Value > 0.5f
@@ -80,17 +123,20 @@ public static class BounceResolver
 
         if (smoke)
         {
-            retain *= parameters.SmokeFirstBounceDamping.Value;
             firstSmokeBounceDone = true;
         }
 
-        return normalPart + (tangentPart * retain);
+        return reflected;
     }
 
     /// <summary>
-    /// Per-tick rolling friction while the projectile is in contact with the floor.
-    /// Valve models this as <c>SetFriction(0.7)</c> on the physics body; here it is
-    /// applied once per tick to the tangential component only.
+    /// Per-tick update for the ground-contact rolling friction. Call once per
+    /// tick, NOT per substep: the rate constant is fitted against tick-resolution
+    /// telemetry, so re-applying it at substep frequency would over-damp by the
+    /// number of calls per tick. The measured rate is zero (the CS2 engine has no
+    /// rolling/sliding term between bounces; rest is reached purely through
+    /// restitution decay to the sleep threshold), so this is a no-op by default
+    /// and stays only as a calibration A/B seam.
     /// </summary>
     public static Vec3 ApplyRollingFriction(Vec3 velocity, Vec3 normal, float dt, PhysicsParameters parameters)
     {
@@ -98,9 +144,10 @@ public static class BounceResolver
         Vec3 normalPart = normal * into;
         Vec3 tangentPart = velocity - normalPart;
 
-        // Exponential decay on the tangential component, rate from the friction
-        // coefficient. Clamped so a zero friction parameter means "no loss".
-        float rate = parameters.GroundFriction.Value * 4f;
+        // Exponential decay on the tangential component while the projectile is
+        // in floor contact. Kept as an independent parameter so calibration can
+        // attribute an error to either side of the impact model.
+        float rate = parameters.GroundRollFrictionRate.Value;
         float scale = rate <= 0f ? 1f : MathF.Exp(-rate * dt);
         return normalPart + (tangentPart * scale);
     }

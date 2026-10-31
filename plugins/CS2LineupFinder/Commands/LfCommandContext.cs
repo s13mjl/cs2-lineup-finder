@@ -85,6 +85,9 @@ public sealed class LfCommandContext
     /// <summary>Engine-free command logic, for the handlers that only need one call.</summary>
     public CommandService Service => _service;
 
+    /// <summary>Geometry the solver traces against, for diagnostics like the replay.</summary>
+    public IWorldGeometry World => _world;
+
     /// <summary>
     /// Marks the player's current position as the throw origin, using the stance they
     /// have selected so a crouched mark records the crouched eye height.
@@ -120,9 +123,51 @@ public sealed class LfCommandContext
     /// <returns>The configuration that is now in effect.</returns>
     public PluginConfig ReloadConfig() => _applyConfig(PluginConfig.Load(Root));
 
-    /// <summary>Runs a search and reports it.</summary>
-    /// <returns>A task that completes once the result has been shown.</returns>
-    public Task<SolverOutcome?> FindAsync() =>
-        _service.FindAsync(PlayerSlot, _world, _cancellations.TokenFor(PlayerSlot));
+   /// <summary>Runs a search and reports it.</summary>
+   /// <returns>A task that completes once the result has been shown.</returns>
+    public Task<SolverOutcome?> FindAsync(double? solveSeconds = null)
+    {
+        RefreshOriginForSearch();
+        return _service.FindAsync(PlayerSlot, _world, _cancellations.TokenFor(PlayerSlot), solveSeconds);
+    }
 
+    /// <summary>
+    /// Re-reads the thrower s feet and eye positions at search time: the mark
+    /// taken by <c>css_lf_start</c> is only the gate saying the player chose a
+    /// spot, while the search must start from the pose the player is actually
+    /// holding when they throw. A stale crouched mark reused for a standing
+    /// throw put every pitch off by the crouch delta.
+    /// </summary>
+    private void RefreshOriginForSearch()
+    {
+        var session = _service.Sessions.GetOrCreate(PlayerSlot);
+        if (session.ThrowPoint is null)
+        {
+            return;
+        }
+
+        var mode = session.ThrowMode;
+        var origin = _movement.GetThrowOrigin(PlayerSlot, mode);
+        if (origin is null)
+        {
+            return;
+        }
+
+        // A jump throw marked during a run-up must keep the marked horizontal
+        // velocity: the player is standing when the search runs, so the live
+        // pawn has none, while the throw will carry the run-up. The jump
+        // impulse itself is already in origin.Velocity's Z from GetThrowOrigin.
+        if (mode == ThrowMode.Jump && session.ThrowVelocity.Length2D > 1f)
+        {
+            Vec3 marked = session.ThrowVelocity;
+            origin = origin with
+            {
+                Velocity = new Vec3(marked.X, marked.Y, origin.Velocity.Z),
+            };
+        }
+
+        session.ThrowPoint = origin.Feet;
+        session.EyePoint = origin.Eyes;
+        session.ThrowVelocity = origin.Velocity;
+    }
 }

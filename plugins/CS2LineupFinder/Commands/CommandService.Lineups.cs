@@ -118,6 +118,12 @@ public sealed partial class CommandService
             {
                 Visuals.DrawZone(request.TargetZone, Config.BeamDurationSeconds);
                 DrawResult(playerSlot, request, session.SelectedSolution!);
+                RecordSuggestion(playerSlot, request, session.SelectedSolution!);
+            }
+ 
+            if (Config.AutoAim && session.SelectedSolution is { } restored)
+            {
+                AimAtSolution(playerSlot, restored);
             }
 
             return record;

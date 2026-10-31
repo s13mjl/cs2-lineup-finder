@@ -49,6 +49,7 @@ plugins/CS2LineupFinder/bin/Release/net8.0/
 !lf_throw stand        # 姿势：stand | crouch | jump
 !lf_button primary     # 按键：primary | secondary | both
 !lf_find               # 求解，结果直接画在世界里
+!lf_find 60            # 加长搜索：60 秒预算换更密的候选网格
 !lf_save my-lineup     # 保存选中结果到 data/lineups/*.json
 ```
 
@@ -87,4 +88,3 @@ tests/      每层一个测试工程，共 172 个用例
 ## 许可证
 
 [MIT](LICENSE) © 2026 s13mjl
-

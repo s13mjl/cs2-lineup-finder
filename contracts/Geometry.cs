@@ -256,7 +256,13 @@ public readonly record struct TraceHit
     /// <param name="fraction">Fraction of the trace distance that was travelled, 0..1.</param>
     /// <param name="entityIndex">Engine index of the hit entity, or -1 for world geometry.</param>
     /// <param name="className">Designer name of the hit entity, when available.</param>
-    public TraceHit(bool didHit, Vec3 position, Vec3 normal, float fraction, int entityIndex = -1, string? className = null)
+    /// <param name="contentsRaw">Raw engine Contents bits at the contact, 0 when unknown.</param>
+    /// <param name="isEmbedded">
+    /// True when the sweep started embedded in solid world geometry, as reported
+    /// by the engine's IsAllSolid flag. Detection happens in the tracer, which
+    /// owns the mask semantics; consumers only read it.
+    /// </param>
+    public TraceHit(bool didHit, Vec3 position, Vec3 normal, float fraction, int entityIndex = -1, string? className = null, ulong contentsRaw = 0, bool isEmbedded = false)
     {
         DidHit = didHit;
         Position = position;
@@ -264,6 +270,8 @@ public readonly record struct TraceHit
         Fraction = fraction;
         EntityIndex = entityIndex;
         ClassName = className;
+        ContentsRaw = contentsRaw;
+        IsEmbedded = isEmbedded;
     }
 
     /// <summary>Whether the trace hit anything.</summary>
@@ -292,6 +300,17 @@ public readonly record struct TraceHit
 
     /// <summary>Designer name of the hit entity, when available.</summary>
     public string? ClassName { get; }
+
+    /// <summary>Raw engine Contents bits at the contact, 0 when the backend could not read them.</summary>
+    public ulong ContentsRaw { get; }
+
+    /// <summary>
+    /// True when the sweep started embedded in solid world geometry
+    /// (engine IsAllSolid=1). Measured signature of the embedded clip-brush
+    /// contacts that return a reduced bounce elasticity; see
+    /// PhysicsParameters.ClipEmbeddedElasticityScale for the evidence.
+    /// </summary>
+    public bool IsEmbedded { get; }
 }
 
 /// <summary>Deterministic constants shared by the forward and inverse simulation.</summary>
@@ -308,4 +327,13 @@ public sealed record SimulationEnvironment
 
     /// <summary>Air drag coefficient applied per tick, 0 disables drag.</summary>
     public float AirDrag { get; init; }
+
+    /// <summary>
+    /// Multiplier on the thrower's own velocity added to the launch velocity.
+    /// CS:GO leak weapon_basecsgrenade.cpp L614: vecThrow = vForward * flVel +
+    /// (pPlayer->GetAbsVelocity() * 1.25). Default 1.25 is the leak constant;
+    /// telemetry-002 row 0 measured 678.63 u/s against the 675 full-throw
+    /// constant, independently confirming thrower-velocity inheritance.
+    /// </summary>
+    public float ThrowerVelocityInheritance { get; init; } = 1.25f;
 }

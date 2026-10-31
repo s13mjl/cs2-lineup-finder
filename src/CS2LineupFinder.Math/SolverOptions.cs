@@ -22,8 +22,13 @@ public sealed record SolverOptions
     /// <summary>Coarse yaw sample spacing, degrees.</summary>
     public double YawStepDegrees { get; init; } = 2d;
 
-    /// <summary>Lowest elevation the coarse sweep tries, degrees above the horizon.</summary>
-    public double MinElevationDegrees { get; init; } = 5d;
+    /// <summary>
+    /// Lowest elevation the coarse sweep tries, degrees above the horizon. It
+    /// sits below zero because a target under the thrower's eye line can need a
+    /// downward release: on de_mirage, a 300u mark at foot level solves at
+    /// about -5 degrees.
+    /// </summary>
+    public double MinElevationDegrees { get; init; } = -15d;
 
     /// <summary>Highest elevation the coarse sweep tries, degrees above the horizon.</summary>
     public double MaxElevationDegrees { get; init; } = 85d;
@@ -84,11 +89,11 @@ public sealed record SolverOptions
             return false;
         }
 
-        if (MinElevationDegrees < 0d
+        if (MinElevationDegrees < -QAngle.MaxPitch
             || MaxElevationDegrees > QAngle.MaxPitch
             || MinElevationDegrees > MaxElevationDegrees)
         {
-            reason = "Elevation window must sit inside 0..89 degrees.";
+            reason = "Elevation window must sit inside -89..89 degrees.";
             return false;
         }
 

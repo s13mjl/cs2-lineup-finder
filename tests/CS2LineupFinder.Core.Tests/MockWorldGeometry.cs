@@ -16,6 +16,7 @@ namespace CS2LineupFinder.Core.Tests;
 public sealed class MockWorldGeometry : IWorldGeometry
 {
     private readonly List<Box> _boxes = new();
+    private readonly List<Box> _clipBrushes = new();
 
     /// <summary>Every trace issued, for assertions on the adaptive step behaviour.</summary>
     public int TraceCount { get; private set; }
@@ -42,12 +43,30 @@ public sealed class MockWorldGeometry : IWorldGeometry
         return this;
     }
 
+    /// <summary>
+    /// Adds a thin clip brush: a volume that never stops a sweep but marks
+    /// one as embedded when the sweep starts with its hull overlapping the
+    /// brush. This encodes the MEASURED engine signature (live tracer,
+    /// 2026-10-19 09:48:18, probes A/J/F): a grenade hull starting inside a
+    /// 1-2u PlayerClip+NpcClip brush over the floor reports IsAllSolid=1 with
+    /// clip contents, while sweeps that start above it pass through untouched
+    /// and the plane floor below stays solid (probe J). The brush itself is
+    /// invisible to hit tests because the simulator sweeps with the clip
+    /// layers excluded, exactly as the engine grenade does.
+    /// </summary>
+    public MockWorldGeometry AddClipBrush(Vec3 min, Vec3 max)
+    {
+        _clipBrushes.Add(new Box(min, max));
+        return this;
+    }
+
     /// <summary>A world with no geometry at all: every trace misses.</summary>
     public static MockWorldGeometry Empty() => new();
 
     /// <inheritdoc />
     public TraceHit TraceRay(Vec3 origin, Vec3 direction, float maxDistance, int ignoreEntityIndex = -1)
     {
+        bool embedded = StartsEmbedded(origin, 0f);
         TraceCount++;
         if (maxDistance > LongestTrace)
         {
@@ -61,7 +80,7 @@ public sealed class MockWorldGeometry : IWorldGeometry
 
         if (maxDistance <= 1e-6f)
         {
-            return new TraceHit(false, origin, Vec3.Zero, 1f);
+            return new TraceHit(false, origin, Vec3.Zero, 1f, -1, null, 0, embedded);
         }
 
         Vec3 dir = direction.Normalized();
@@ -84,21 +103,113 @@ public sealed class MockWorldGeometry : IWorldGeometry
 
         if (bestFraction == float.MaxValue)
         {
-            return new TraceHit(false, origin, Vec3.Zero, 1f);
+            return new TraceHit(false, origin, Vec3.Zero, 1f, -1, null, 0, embedded);
         }
 
         // Back off a hair so the contact is reported just short of the face.
         Vec3 contact = origin + (dir * MathF.Max(0f, (bestFraction * maxDistance) - 0.01f));
-        return new TraceHit(true, contact, bestNormal, bestFraction, -1);
+        return new TraceHit(true, contact, bestNormal, bestFraction, -1, null, 0, embedded);
     }
 
     /// <inheritdoc />
     public TraceHit TraceSphere(Vec3 origin, Vec3 direction, float maxDistance, float radius, int ignoreEntityIndex = -1)
-        => TraceRay(origin, direction, maxDistance, ignoreEntityIndex);
+    {
+        if (radius <= 1e-6f)
+        {
+            return TraceRay(origin, direction, maxDistance, ignoreEntityIndex);
+        }
+
+        bool embedded = StartsEmbedded(origin, radius);
+        TraceCount++;
+        if (maxDistance <= 1e-6f)
+        {
+            return new TraceHit(false, origin, Vec3.Zero, 1f, -1, null, 0, embedded);
+        }
+
+        // Expands every box by the hull radius and keeps the entry face normal.
+        // A hull of half-height r touching a plane reports the contact when the
+        // CENTRE is r away from the plane, so the reported position is where the
+        // swept-shape ORIGIN (the centre) stops, one radius above the surface.
+        // That is the same thing the engine's swept hull reports as its end
+        // position, and it is what the simulator relies on: it puts the hull
+        // centre on the surface the telemetry proves it rests on.
+        Vec3 dir = direction.Normalized();
+        float bestFraction = float.MaxValue;
+        Vec3 bestNormal = Vec3.Zero;
+
+        foreach (Box box in _boxes)
+        {
+            if (!box.Intersect(origin, dir, maxDistance, radius, out float fraction, out Vec3 normal))
+            {
+                continue;
+            }
+
+            if (fraction < bestFraction)
+            {
+                bestFraction = fraction;
+                bestNormal = normal;
+            }
+        }
+
+        if (bestFraction == float.MaxValue)
+        {
+            return new TraceHit(false, origin, Vec3.Zero, 1f, -1, null, 0, embedded);
+        }
+
+        Vec3 contact = origin + (dir * MathF.Max(0f, (bestFraction * maxDistance) - 0.01f));
+        return new TraceHit(true, contact, bestNormal, bestFraction, -1, null, 0, embedded);
+    }
 
     /// <inheritdoc />
     public TraceHit ProbeGround(Vec3 position, float maxDrop)
         => TraceRay(position, new Vec3(0f, 0f, -1f), maxDrop);
+
+    /// <summary>
+    /// True when a hull of <paramref name="radius"/> centred on
+    /// <paramref name="origin"/> overlaps any clip brush - the engine's
+    /// IsAllSolid condition at the sweep start (probe A: hull 2 overlaps,
+    /// hull 1.5 from the same start does not, matching the brush thickness).
+    /// </summary>
+    private bool StartsEmbedded(Vec3 origin, float radius)
+    {
+        foreach (Box brush in _clipBrushes)
+        {
+            bool overlap = true;
+            for (int axis = 0; axis < 3; axis++)
+            {
+                float o = axis switch
+                {
+                    0 => origin.X,
+                    1 => origin.Y,
+                    _ => origin.Z,
+                };
+                float lo = (axis switch
+                {
+                    0 => brush.Min.X,
+                    1 => brush.Min.Y,
+                    _ => brush.Min.Z,
+                }) - radius;
+                float hi = (axis switch
+                {
+                    0 => brush.Max.X,
+                    1 => brush.Max.Y,
+                    _ => brush.Max.Z,
+                }) + radius;
+                if (o < lo || o > hi)
+                {
+                    overlap = false;
+                    break;
+                }
+            }
+
+            if (overlap)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }
 
 /// <summary>Slab-method AABB, reporting the face normal of the entry point.</summary>
@@ -113,7 +224,15 @@ internal readonly struct Box
         _max = max;
     }
 
+    public Vec3 Min => _min;
+
+    public Vec3 Max => _max;
+
     public bool Intersect(Vec3 origin, Vec3 dir, float maxDistance, out float fraction, out Vec3 normal)
+        => Intersect(origin, dir, maxDistance, 0f, out fraction, out normal);
+
+    /// <summary>Hull-radius variant: every box grows by <paramref name="radius"/>.</summary>
+    public bool Intersect(Vec3 origin, Vec3 dir, float maxDistance, float radius, out float fraction, out Vec3 normal)
     {
         fraction = 1f;
         normal = Vec3.Zero;
@@ -127,8 +246,8 @@ internal readonly struct Box
         {
             float o = Component(origin, axis);
             float d = Component(dir, axis);
-            float lo = Component(_min, axis);
-            float hi = Component(_max, axis);
+            float lo = Component(_min, axis) - radius;
+            float hi = Component(_max, axis) + radius;
 
             if (MathF.Abs(d) < 1e-8f)
             {

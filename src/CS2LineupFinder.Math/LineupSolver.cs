@@ -53,6 +53,41 @@ public sealed class LineupSolver : ILineupSolver
     public string Name => "coarse-to-fine-v1";
 
     /// <summary>
+    /// Merges the per-request overrides (search seconds, precision steps) into a
+    /// copy of the configured options. The solver instance is shared across
+    /// players, so the merged copy is local to one search.
+    /// </summary>
+    private SolverOptions EffectiveOptions(LineupRequest request)
+    {
+        if (request is null ||
+            (request.SolveSeconds is null &&
+             request.YawStepDegrees is null &&
+             request.ElevationStepDegrees is null))
+        {
+            return _options;
+        }
+
+        var timeout = request.SolveSeconds is { } seconds && seconds > 0d
+            ? TimeSpan.FromSeconds(seconds)
+            : _options.Timeout;
+        return new SolverOptions
+        {
+            MaxEvaluations = _options.MaxEvaluations,
+            Timeout = timeout,
+            YawSpanDegrees = _options.YawSpanDegrees,
+            YawStepDegrees = request.YawStepDegrees ?? _options.YawStepDegrees,
+            MinElevationDegrees = _options.MinElevationDegrees,
+            MaxElevationDegrees = _options.MaxElevationDegrees,
+            ElevationStepDegrees = request.ElevationStepDegrees ?? _options.ElevationStepDegrees,
+            RefineTopK = _options.RefineTopK,
+            MaxRefineIterations = _options.MaxRefineIterations,
+            ConvergenceUnits = _options.ConvergenceUnits,
+            ConvergenceDegrees = _options.ConvergenceDegrees,
+            MaxAlternatives = _options.MaxAlternatives,
+        };
+    }
+
+    /// <summary>
     /// Streams angle pairs worth simulating, cheapest first, using nothing but a vacuum
     /// prediction of where they land.
     /// </summary>
@@ -127,16 +162,17 @@ public sealed class LineupSolver : ILineupSolver
     /// <param name="profile">Grenade profile that fixes the release speed used for seeding.</param>
     /// <param name="cancellationToken">Cancels the search.</param>
     /// <returns>Ranked solutions, best first. Never throws for an unreachable or blocked zone.</returns>
-    public Task<SolverOutcome> SolveAsync(
-        LineupRequest request,
-        IImpactEvaluator evaluator,
-        GrenadeProfile profile,
-        CancellationToken cancellationToken = default)
-    {
-        var budget = new SearchBudget(_options.MaxEvaluations, _options.Timeout);
+   public Task<SolverOutcome> SolveAsync(
+       LineupRequest request,
+       IImpactEvaluator evaluator,
+       GrenadeProfile profile,
+       CancellationToken cancellationToken = default)
+   {
+        var effective = EffectiveOptions(request);
+        var budget = new SearchBudget(effective.MaxEvaluations, effective.Timeout);
 
-        if (request is null)
-        {
+       if (request is null)
+       {
             return Task.FromResult(Fail(SolverStatus.InvalidRequest, "request must not be null.", budget));
         }
 
@@ -225,17 +261,18 @@ public sealed class LineupSolver : ILineupSolver
             cancellationToken);
     }
 
-    private SolverOutcome Search(
-        LineupRequest request,
-        IImpactEvaluator evaluator,
-        in Launch launch,
-        SearchBudget budget,
-        CancellationToken cancellationToken)
-    {
-        var zone = request.TargetZone;
-        var scorer = new Scorer(evaluator, budget, zone, _options);
-        var pool = new List<Scorer.Hit>();
-        var stageOne = 0;
+   private SolverOutcome Search(
+       LineupRequest request,
+       IImpactEvaluator evaluator,
+       in Launch launch,
+       SearchBudget budget,
+       CancellationToken cancellationToken)
+   {
+       var zone = request.TargetZone;
+        var options = EffectiveOptions(request);
+        var scorer = new Scorer(evaluator, budget, zone, options);
+       var pool = new List<Scorer.Hit>();
+       var stageOne = 0;
 
         // --- Stage 1a: the analytic low and high arc straight at the zone centre ------------
         foreach (var seed in BuildSeeds(launch))
@@ -248,18 +285,18 @@ public sealed class LineupSolver : ILineupSolver
         }
 
         // --- Stage 1b: the coarse grid around that bearing ----------------------------------
-        var yawSteps = (int)Floor((_options.YawSpanDegrees / _options.YawStepDegrees) + 1e-6);
+        var yawSteps = (int)Floor((options.YawSpanDegrees / options.YawStepDegrees) + 1e-6);
         var elevationSteps = (int)Floor(
-            ((_options.MaxElevationDegrees - _options.MinElevationDegrees) / _options.ElevationStepDegrees) + 1e-6);
+            ((options.MaxElevationDegrees - options.MinElevationDegrees) / options.ElevationStepDegrees) + 1e-6);
 
         for (var yi = -yawSteps; yi <= yawSteps && !budget.IsExhausted; yi++)
         {
-            var yaw = launch.Bearing + (yi * _options.YawStepDegrees);
+            var yaw = launch.Bearing + (yi * options.YawStepDegrees);
             for (var ei = 0; ei <= elevationSteps && !budget.IsExhausted; ei++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var elevation = _options.MinElevationDegrees + (ei * _options.ElevationStepDegrees);
+                var elevation = options.MinElevationDegrees + (ei * options.ElevationStepDegrees);
                 if (scorer.TryProbe(yaw, elevation, out var hit))
                 {
                     pool.Add(hit);
@@ -321,12 +358,12 @@ public sealed class LineupSolver : ILineupSolver
                 break;
             }
 
-            if (IsDuplicate(ranked, hit))
+            if (IsDuplicate(ranked, hit, launch.Bias))
             {
                 continue;
             }
 
-            ranked.Add(ToSolution(request, hit, budget, stageOne, stageTwo, simplexIterations));
+            ranked.Add(ToSolution(request, hit, budget, stageOne, stageTwo, simplexIterations, launch.Bias));
         }
 
         if (ranked.Count > 0)
@@ -367,7 +404,7 @@ public sealed class LineupSolver : ILineupSolver
             ? failure
             : failure with
             {
-                Results = new[] { ToSolution(request, closest[0], budget, stageOne, stageTwo, simplexIterations) },
+                Results = new[] { ToSolution(request, closest[0], budget, stageOne, stageTwo, simplexIterations, launch.Bias) },
             };
     }
 
@@ -393,25 +430,36 @@ public sealed class LineupSolver : ILineupSolver
         return BuildCandidatesForLaunch(request, in launch);
     }
 
-    private List<AngleCandidate> BuildCandidatesForLaunch(LineupRequest request, in Launch launch)
-    {
-        var limit = Max(1, request.MaxCandidates);
-        var candidates = new List<AngleCandidate>(limit);
-        foreach (var seed in BuildSeeds(launch))
-        {
-            candidates.Add(ToCandidate(seed.Yaw, seed.Elevation, 0d));
-        }
+   private List<AngleCandidate> BuildCandidatesForLaunch(LineupRequest request, in Launch launch)
+   {
+       var options = EffectiveOptions(request);
+       var yawSpan = request.YawSpanDegrees ?? options.YawSpanDegrees;
+       var minElevation = request.MinElevationDegrees ?? options.MinElevationDegrees;
+       var maxElevation = request.MaxElevationDegrees ?? options.MaxElevationDegrees;
+       var limit = Max(1, request.MaxCandidates);
+       var candidates = new List<AngleCandidate>(limit);
+       foreach (var seed in BuildSeeds(launch))
+       {
+           // The search reasons in physical release elevation; the engine raises
+           // every throw by the pitch-dependent aim bias, so the pitch a player
+           // aims is the exact inverse of that elevation under the bias.
+           candidates.Add(ToCandidate(seed.Yaw, AimPitchFromElevation(seed.Elevation, launch.Bias), 0d));
+       }
 
-        var grid = new List<(double Yaw, double Elevation, double Cost)>();
-        var yawSteps = (int)Floor((_options.YawSpanDegrees / _options.YawStepDegrees) + 1e-6);
-        var elevationSteps = (int)Floor(
-            ((_options.MaxElevationDegrees - _options.MinElevationDegrees) / _options.ElevationStepDegrees) + 1e-6);
-        for (var yi = -yawSteps; yi <= yawSteps && grid.Count < GridSafetyLimit; yi++)
-        {
-            var yaw = launch.Bearing + (yi * _options.YawStepDegrees);
-            for (var ei = 0; ei <= elevationSteps; ei++)
-            {
-                var elevation = _options.MinElevationDegrees + (ei * _options.ElevationStepDegrees);
+       // The safety ceiling yields to an explicit candidate budget: a long
+       // "find <seconds>" legitimately needs more grid cells than the shipped
+       // default protects, and the budget is the caller's own bound.
+       var gridCeiling = Max(GridSafetyLimit, request.MaxCandidates);
+       var grid = new List<(double Yaw, double Elevation, double Cost)>();
+       var yawSteps = (int)Floor((yawSpan / options.YawStepDegrees) + 1e-6);
+       var elevationSteps = (int)Floor(
+            ((maxElevation - minElevation) / options.ElevationStepDegrees) + 1e-6);
+       for (var yi = -yawSteps; yi <= yawSteps && grid.Count < gridCeiling; yi++)
+       {
+            var yaw = launch.Bearing + (yi * options.YawStepDegrees);
+           for (var ei = 0; ei <= elevationSteps; ei++)
+           {
+                var elevation = minElevation + (ei * options.ElevationStepDegrees);
                 var predicted = Ballistics.PredictImpact(
                     request.Origin.Eyes,
                     yaw,
@@ -431,7 +479,7 @@ public sealed class LineupSolver : ILineupSolver
                 break;
             }
 
-            candidates.Add(ToCandidate(entry.Yaw, entry.Elevation, entry.Cost));
+            candidates.Add(ToCandidate(entry.Yaw, AimPitchFromElevation(entry.Elevation, launch.Bias), entry.Cost));
         }
 
         return candidates;
@@ -464,7 +512,7 @@ public sealed class LineupSolver : ILineupSolver
 
     private static void AddSeed(List<(double Yaw, double Elevation)> seeds, double yaw, double elevation)
     {
-        if (double.IsNaN(elevation) || elevation < 0d || elevation > QAngle.MaxPitch)
+        if (double.IsNaN(elevation) || elevation < -QAngle.MaxPitch || elevation > QAngle.MaxPitch)
         {
             return;
         }
@@ -472,14 +520,17 @@ public sealed class LineupSolver : ILineupSolver
         seeds.Add((yaw, elevation));
     }
 
-    private bool IsDuplicate(List<LineupSolution> accepted, Scorer.Hit hit)
+    private bool IsDuplicate(List<LineupSolution> accepted, Scorer.Hit hit, double aimBias)
     {
         foreach (var solution in accepted)
         {
             var yawGap = Abs(AngleMath.AngleDifference(solution.Yaw, hit.Yaw));
 
-            // LineupSolution.Pitch is engine pitch, so -Pitch is the elevation the search used.
-            var elevationGap = Abs((double)solution.Pitch + hit.Elevation);
+            // LineupSolution.Pitch is the aim pitch a player sets; the search
+            // hit carries the physical release elevation. Compare in the same
+            // space, otherwise every solution looks 10 degrees off.
+            var elevationGap = Abs(
+                (double)solution.Pitch - AimPitchFromElevation(hit.Elevation, aimBias));
             if (yawGap < _options.AlternativeYawSeparation && elevationGap < _options.AlternativeElevationSeparation)
             {
                 return true;
@@ -535,12 +586,22 @@ public sealed class LineupSolver : ILineupSolver
         SearchBudget budget,
         int stageOne,
         int stageTwo,
-        int simplexIterations) =>
+        int simplexIterations,
+        double aimBias) =>
         new()
         {
             Yaw = (float)Round(AngleMath.NormalizeYaw(hit.Yaw), 1),
-            Pitch = (float)Round(AngleMath.PitchFromElevation(hit.Elevation), 1),
-            ReleasePosition = request.Origin.Eyes,
+
+            // The search hit is a physical release elevation; the contract's
+            // Pitch is the aim pitch the engine bias turns into that elevation.
+            Pitch = (float)Round(AimPitchFromElevation(hit.Elevation, aimBias), 1),
+            ReleasePosition = request.Origin.Eyes
+                + new Vec3(0f, 0f, request.Button switch
+                {
+                    ThrowButton.Secondary => -12f,
+                    ThrowButton.Both => -6f,
+                    _ => 0f,
+                }),
             ImpactPosition = hit.Impact,
             TargetDistance = (float)hit.Cost,
             Steps = budget.Used,
@@ -559,9 +620,29 @@ public sealed class LineupSolver : ILineupSolver
         new()
         {
             Yaw = (float)Round(AngleMath.NormalizeYaw(yaw), 1),
-            Pitch = (float)Round(AngleMath.PitchFromElevation(elevation), 1),
+            Pitch = (float)Round(AngleMath.ClampPitch(elevation), 1),
             HeuristicCost = (float)cost,
         };
+
+    /// <summary>
+    /// Inverts the engine's pitch-dependent aim bias for one physical release
+    /// elevation. The biased pitch is <c>e(a) = a + b*(90-|a|)/90</c> in the
+    /// contract convention (positive looks up), whose exact inverse is
+    /// <c>a = (e-b)*90/(90-b)</c> for <c>e >= b</c> and <c>a = (e-b)*90/(90+b)</c>
+    /// otherwise. The naive constant <c>e - b</c> over-aimed every oblique throw
+    /// because the engine bias lerps to zero at the vertical extremes
+    /// (weapon_basecsgrenade.cpp ThrowGrenade).
+    /// </summary>
+    internal static double AimPitchFromElevation(double elevation, double bias)
+    {
+        if (Abs(bias) < 1e-9)
+        {
+            return elevation;
+        }
+
+        var delta = elevation - bias;
+        return delta >= 0d ? delta * 90d / (90d - bias) : delta * 90d / (90d + bias);
+    }
 
     private static SolverOutcome Fail(SolverStatus status, string message, SearchBudget budget) =>
         SolverOutcome.Failure(status, message, budget.Elapsed);
@@ -647,7 +728,8 @@ public sealed class LineupSolver : ILineupSolver
             horizontal,
             (double)center.Z - eyes.Z,
             speed,
-            gravity);
+            gravity,
+            profile.AimBiasDegrees);
         return true;
     }
 
@@ -672,6 +754,25 @@ public sealed class LineupSolver : ILineupSolver
         internal double Speed { get; }
 
         internal double Gravity { get; }
+
+        /// <summary>Upward aim bias the engine applies, degrees.</summary>
+        internal double Bias { get; }
+
+        internal Launch(
+            double bearing,
+            double range,
+            double deltaZ,
+            double speed,
+            double gravity,
+            double bias)
+        {
+            Bearing = bearing;
+            Range = range;
+            DeltaZ = deltaZ;
+            Speed = speed;
+            Gravity = gravity;
+            Bias = bias;
+        }
     }
 
     /// <summary>Turns a pair of angles into a cost, charging the shared budget for each probe.</summary>

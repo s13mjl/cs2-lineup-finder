@@ -68,6 +68,7 @@ public static class CoreLoader
         if (simulator is not null)
         {
             bridge.UseCoreSimulator(simulator);
+            ApplyPhysicsOverrides(simulator, bridge.Config?.Invoke(), messages);
         }
 
         if (solver is not null)
@@ -78,6 +79,72 @@ public static class CoreLoader
         return string.Create(
             System.Globalization.CultureInfo.InvariantCulture,
             $"simulator={bridge.Simulator.GetType().Name} solver={bridge.Solver.GetType().Name} stub={bridge.UsingStub}");
+    }
+
+    /// <summary>
+    /// Pushes the configured physics constants into a live Core simulator, when it
+    /// exposes its parameter set. Reflection keeps the compile-order-free layer
+    /// boundary: the plugin never references the Core assembly at build time.
+    /// </summary>
+    internal static void ApplyPhysicsOverrides(
+        ITrajectorySimulator simulator,
+        Config.PluginConfig? config,
+        IPluginMessages messages)
+    {
+        if (config is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var parameters = simulator.GetType().GetProperty("Parameters")?.GetValue(simulator);
+            if (parameters is null)
+            {
+                return;
+            }
+
+            var set = parameters.GetType().GetMethod("Set", new[] { typeof(string), typeof(float) });
+            if (set is null)
+            {
+                return;
+            }
+
+            void Apply(string name, double value)
+            {
+                try
+                {
+                    set.Invoke(parameters, new object[] { name, (float)value });
+                }
+                catch (Exception ex)
+                {
+                    messages.LogWarning(
+                        "CS2LineupFinder: physics override '" + name + "' was rejected: "
+                        + ex.GetBaseException().Message);
+                }
+            }
+
+            Apply("GrenadeGravity", config.PhysicsGrenadeGravity);
+            Apply("Restitution", config.PhysicsRestitution);
+            Apply("SmokeFirstBounceDamping", config.PhysicsSmokeFirstBounceDamping);
+            Apply("SmokeExtraDampingEnabled", config.PhysicsSmokeExtraDampingEnabled ? 1.0 : 0.0);
+            Apply("GroundRollFrictionRate", config.PhysicsGroundRollFrictionRate);
+            Apply("FullThrowSpeed", config.PhysicsFullThrowSpeed);
+            Apply("AimBiasDegrees", config.PhysicsAimBiasDegrees);
+            Apply("VelocityInheritance", config.PhysicsVelocityInheritance);
+            messages.Log(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"CS2LineupFinder: physics overrides applied (gravity={config.PhysicsGrenadeGravity:0.#}, " +
+                $"restitution={config.PhysicsRestitution:0.###}, " +
+                $"smokeDamping={config.PhysicsSmokeFirstBounceDamping:0.###}, smokeDampingOn={config.PhysicsSmokeExtraDampingEnabled}, " +
+                $"mu={config.PhysicsBounceFrictionMu:0.##}, rollRate={config.PhysicsGroundRollFrictionRate:0.##}, " +
+                $"speed={config.PhysicsFullThrowSpeed:0.#}, aimBias={config.PhysicsAimBiasDegrees:0.#}, " +
+                $"inheritance={config.PhysicsVelocityInheritance:0.###})."));
+        }
+        catch (Exception ex)
+        {
+            messages.LogWarning("CS2LineupFinder: physics overrides could not be applied: " + ex.Message);
+        }
     }
 
     private static T? TryInstall<T>(PluginDependencyLoader loader, string fileName, IPluginMessages messages, string label)

@@ -45,8 +45,18 @@ public sealed class GameWorldGeometry : IWorldGeometry
     /// <summary>Sweeps issued since the last reset, for diagnostics and tests.</summary>
     public int SweepsUsed => _tracer.SweepsUsed;
 
-    /// <summary>Refills the sweep budget. Called once per search.</summary>
+    /// <summary>Refills the sweep budget. Call once per search, before the first sweep.</summary>
     public void ResetBudget() => _tracer.ResetBudget();
+
+    /// <summary>Whether a sweep has already been rejected for exceeding the budget.</summary>
+    public bool BudgetExhausted => _tracer.BudgetExhausted;
+
+    /// <summary>
+    /// Writes the meter plus the backend name to the plugin log, so a misbehaving
+    /// search leaves a number in the log instead of a mystery.
+    /// </summary>
+    /// <param name="context">Short label of the code path that finished.</param>
+    public void LogSweeps(string context) => _tracer.LogSweeps(context);
 
     /// <summary>
     /// Whether sweeps against the running server reach real geometry, so the menu can

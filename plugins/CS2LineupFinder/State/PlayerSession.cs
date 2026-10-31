@@ -64,6 +64,12 @@ public sealed class PlayerSession
     /// <summary>True once both a throw point and a landing zone are known.</summary>
     public bool IsReadyForSearch => ThrowPoint.HasValue && Zone is not null;
 
+    /// <summary>
+    /// One-shot search length in seconds typed with <c>css_lf_find &lt;seconds&gt;</c>,
+    /// consumed by the next search and then cleared. Null keeps the configured default.
+    /// </summary>
+    public double? SolveSecondsOverride { get; set; }
+
     /// <summary>Returns the currently selected solution, or <see langword="null"/>.</summary>
     /// <returns>The selected solution.</returns>
     public LineupSolution? SelectedSolution

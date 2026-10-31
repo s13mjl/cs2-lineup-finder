@@ -96,6 +96,11 @@ internal sealed class VacuumSimulatorStub : ITrajectorySimulator
         CancellationToken cancellationToken = default) =>
         throw new NotSupportedException(
             "Core owns the driver; math-core must reach the simulator through IImpactEvaluator instead.");
+
+    public ILineupSearch? BeginLineupSearch(
+        LineupRequest request,
+        ILineupSolver solver,
+        IWorldGeometry world) => null;
 }
 
 /// <summary>Open ground: nothing ever intercepts a sweep, and the floor is one flat plane.</summary>
@@ -163,6 +168,26 @@ public sealed class SimulatorImpactEvaluatorTests
     }
 
     [Fact]
+    public void InvertsTheProfileAimBias_BeforeBuildingTheThrow()
+    {
+        // A physical release elevation of 20 degrees with a 10-degree aim bias
+        // must reach the engine as aim pitch 11.25, not 20: the engine adds
+        // e(a) = a + 10*(90-|a|)/90. With AimBiasDegrees = 0 (the other tests)
+        // this conversion is a no-op, which is why this test uses a biased
+        // profile - telemetry-002/1018 have no direct SolveAsync coverage.
+        var profile = Fixture.Smoke() with { AimBiasDegrees = 10f };
+        var stub = new VacuumSimulatorStub(planeZ: OnEnvelope.Z);
+        var request = Fixture.Request(OnEnvelope);
+        new SimulatorImpactEvaluator(stub, new FlatWorld(OnEnvelope.Z), request, profile)
+            .TryEvaluate(yawDegrees: 0d, elevationDegrees: 20d, out _);
+
+        var sent = stub.LastParameters!;
+        var expected = AngleMath.DirectionFromElevation(0d, 11.25d).Normalized() * (float)Fixture.Speed;
+        AssertNear(expected.X, sent.Velocity.X, "biased velocity X");
+        AssertNear(expected.Z, sent.Velocity.Z, "biased velocity Z");
+    }
+
+    [Fact]
     public void CarriesTheThrowerVelocityIntoTheRelease()
     {
         var request = Fixture.Request(OnEnvelope) with
@@ -179,8 +204,11 @@ public sealed class SimulatorImpactEvaluatorTests
             .TryEvaluate(0d, 0d, out _);
 
         var sent = stub.LastParameters!;
+        // The engine launch is aim*speed + throwerVelocity * 1.25 (CS:GO leak
+        // weapon_basecsgrenade.cpp L614; telemetry-002 row 0 measured 678.63
+        // u/s against the 675 constant, i.e. 1.25 x thrower motion).
         AssertNear(400d, sent.Velocity.X, "velocity X");
-        AssertNear(100d, sent.Velocity.Y, "the inherited sideways speed");
+        AssertNear(125d, sent.Velocity.Y, "the inherited sideways speed");
         AssertNear(0d, sent.Velocity.Z, "velocity Z");
     }
 

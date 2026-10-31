@@ -34,14 +34,17 @@ public static class CommandSpec
         new("css_lf_grenade", "lf_grenade", "smoke | flash | molotov | he", "Selects the grenade."),
         new("css_lf_throw", "lf_throw", "stand | crouch | jump", "Selects the throw stance."),
         new("css_lf_button", "lf_button", "primary | secondary | both", "Selects the mouse button combination."),
-        new("css_lf_find", "lf_find", NoArguments, "Searches for a line-up and draws the result."),
+        new("css_lf_find", "lf_find", "[seconds]", "Searches for a line-up and draws the result."),
         new("css_lf_save", "lf_save", "<name>", "Saves the current result under a name."),
         new("css_lf_load", "lf_load", "<name>", "Loads a saved line-up."),
         new("css_lf_list", "lf_list", NoArguments, "Lists the line-ups saved on this map."),
         new("css_lf_draw", "lf_draw", NoArguments, "Redraws the latest result in the world."),
         new("css_lf_set", "lf_set", "<index>", "Picks one of the results of the last search."),
+        new("css_lf_aim", "lf_aim", "[index]", "Points your view at a result: the best one, or the given index."),
         new("css_lf_clear", "lf_clear", NoArguments, "Clears the throw point, the landing zone and the results."),
         new("css_lf_reload", "lf_reload", NoArguments, "Reloads config.toml."),
+        new("css_lf_replay", "lf_replay", "[telemetryIndex]", "Replays calibration landings; pass a telemetry number for a tick-by-tick forensic replay."),
+        new("css_lf_probe", "lf_probe", "[hullRadius]", "Reports raw engine trace fields for the ground under your feet."),
     };
 
     /// <summary>Chat aliases, in the same order as <see cref="All"/>.</summary>
@@ -77,6 +80,21 @@ public static class CommandSpec
         }
 
         return null;
+    }
+
+    /// <summary>True when <paramref name="chatName"/> is one of this plugin's chat aliases.</summary>
+    /// <param name="chatName">Alias without the trigger character, e.g. <c>lf_zone</c>.</param>
+    public static bool IsChatAlias(string chatName)
+    {
+        foreach (var spec in All)
+        {
+            if (string.Equals(spec.Chat, chatName, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static IReadOnlyList<string> BuildAliases()

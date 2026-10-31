@@ -75,8 +75,10 @@ public sealed class LineupSolverTests
         var best = outcome.Results[0];
         Assert.True(best.TargetDistance < 1f, $"expected a clean hit, got {best.TargetDistance} units of error");
 
-        // Substitute the reported angles into R = v^2 sin(2*theta) / g along the reported yaw.
-        var elevation = AngleMath.ElevationFromPitch(best.Pitch);
+        // Substitute the reported angles into R = v^2 sin(2*theta) / g along the
+        // reported yaw. Solution pitches are contract angles (positive looks
+        // up), which is exactly the elevation the ballistic formulae take.
+        var elevation = (double)best.Pitch;
         var predicted = Ballistics.PredictImpact(
             Fixture.Eyes,
             best.Yaw,
@@ -104,7 +106,7 @@ public sealed class LineupSolverTests
         Assert.True(outcome.Results.Count >= 2, $"expected several arcs, got {outcome.Results.Count}");
         Assert.True(outcome.Results.Count <= 5, "the report is capped at five alternatives");
 
-        var elevations = outcome.Results.Select(r => AngleMath.ElevationFromPitch(r.Pitch)).ToArray();
+        var elevations = outcome.Results.Select(r => (double)r.Pitch).ToArray();
         Assert.True(
             elevations.Max() - elevations.Min() > 10d,
             "the alternatives should span the flat and the lofted arc, not one arc plus noise");
@@ -138,15 +140,15 @@ public sealed class LineupSolverTests
         Assert.All(
             blockedOutcome.Results,
             solution => Assert.True(
-                AngleMath.ElevationFromPitch(solution.Pitch) > 45d,
-                $"elevation {AngleMath.ElevationFromPitch(solution.Pitch):0.#} would be stopped by the wall"));
+                (double)solution.Pitch > 45d,
+                $"elevation {solution.Pitch:0.#} would be stopped by the wall"));
 
         // Same zone on open ground prefers the cheaper flat arc, which proves the wall bit.
         var open = new VacuumThrowMock(Fixture.Eyes, Fixture.Speed, Fixture.Gravity, planeZ: TwoArcsTarget.Z);
         var openOutcome = await new LineupSolver().SolveAsync(request, open, Fixture.Smoke());
         Assert.Equal(SolverStatus.Success, openOutcome.Status);
         Assert.True(
-            AngleMath.ElevationFromPitch(openOutcome.Results[0].Pitch) < 45d,
+            (double)openOutcome.Results[0].Pitch < 45d,
             "without the wall the flat arc is the closest thing to the analytic seed");
     }
 
@@ -273,7 +275,7 @@ public sealed class LineupSolverTests
         // The head of the stream is the analytic seed: due north at the flat arc.
         Assert.Equal(0d, candidates[0].Yaw, 1);
         Assert.True(candidates[0].HeuristicCost == 0f, "seeds carry no heuristic penalty");
-        Assert.True(candidates[0].Pitch < 0f, "a lofted seed must report a negative engine pitch");
+        Assert.True(candidates[0].Pitch > 0f, "a lofted seed must report a positive contract pitch");
 
         var gridCosts = candidates.Skip(2).Select(c => (double)c.HeuristicCost).ToArray();
         Assert.True(gridCosts.SequenceEqual(gridCosts.OrderBy(c => c)), "grid candidates must be ranked by predicted error");

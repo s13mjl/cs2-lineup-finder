@@ -84,19 +84,67 @@ public sealed class GameMovementProvider : IMovementProvider
             var eyeHeight = mode == ThrowMode.Crouch ? CrouchedEyeHeight : StandingEyeHeight;
             var velocity = pawn.Velocity;
 
+            // The throw must release from where the camera really is, not from an
+            // assumed height. m_vecViewOffset is a feet-relative offset, so it is
+            // added to the feet position; plausible-value guards keep a schema
+            // misread from teleporting the release point, and the constants are
+            // only the fallback when the engine value is missing or implausible.
+            var eyes = EyePosition(pawn, feet, eyeHeight);
+
+            Vec3 carried = velocity is null
+                ? Vec3.Zero
+                : new Vec3(velocity.X, velocity.Y, velocity.Z);
+
+            // A jump throw launches while the player carries the jump impulse.
+            // The search cannot run mid-jump, so the standing search pose would
+            // otherwise drop the whole vertical player velocity and predict a
+            // standing throw (measured: +300 u/s moves the landing 816 u).
+            // Only add the impulse when the pawn carries no vertical motion of
+            // its own; a mark/search actually taken mid-jump or mid-fall must
+            // not double it.
+            if (mode == ThrowMode.Jump && MathF.Abs(carried.Z) <= 1f)
+            {
+                carried += new Vec3(0f, 0f, JumpVelocity);
+            }
+
             return new ThrowOrigin
             {
                 Feet = feet,
-                Eyes = feet + new Vec3(0f, 0f, eyeHeight),
-                Velocity = velocity is null
-                    ? Vec3.Zero
-                    : new Vec3(velocity.X, velocity.Y, velocity.Z),
+                Eyes = eyes,
+                Velocity = carried,
             };
         }
         catch (Exception)
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// The live camera position above the feet. Prefers the engine's
+    /// feet-relative view offset (which carries the crouch height); falls back
+    /// to the stance constant only when the schema value is missing or
+    /// implausible.
+    /// </summary>
+    private static Vec3 EyePosition(CCSPlayerPawn pawn, Vec3 feet, float fallbackHeight)
+    {
+        var eyes = feet + new Vec3(0f, 0f, fallbackHeight);
+        try
+        {
+            var view = pawn.ViewOffset;
+            var horizontalSq = (view.X * view.X) + (view.Y * view.Y);
+            if (view.Z >= 10f && view.Z <= 90f && horizontalSq <= 50f * 50f)
+            {
+                eyes = feet + new Vec3(view.X, view.Y, view.Z);
+            }
+        }
+        catch (Exception)
+        {
+            // Keep the stance fallback; a missing schema value must never fail
+            // a zone or a mark.
+        }
+
+        return eyes;
     }
 
     /// <inheritdoc />
@@ -116,7 +164,13 @@ public sealed class GameMovementProvider : IMovementProvider
         try
         {
             var origin = pawn.AbsOrigin!;
-            eyes = new Vec3(origin.X, origin.Y, origin.Z + StandingEyeHeight);
+            var feet = new Vec3(origin.X, origin.Y, origin.Z);
+
+            // The crosshair probe must start at the camera the player is actually
+            // looking through. The old fixed standing height placed zone centres
+            // 18/tan(depression) units beyond the ground point while crouched:
+            // 31 u at 30 degrees, 51 u at 20 degrees, 102 u at 10 degrees.
+            eyes = EyePosition(pawn, feet, StandingEyeHeight);
 
             // EyeAngles is the player's own recoil-free view, which is what a player
             // aims with; aim punch only matters mid-spray, when nobody marks a zone.

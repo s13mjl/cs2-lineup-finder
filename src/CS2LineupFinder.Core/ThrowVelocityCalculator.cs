@@ -10,16 +10,20 @@ namespace CS2LineupFinder.Core;
 /// <summary>
 /// Resolves the launch velocity the way CS:GO / CS2 do.
 ///
-/// Source, CS:GO <c>game/shared/cstrike/weapon_basecsgrenade.cpp</c>
-/// (<c>CBaseCSGrenade::ThrowGrenade</c>):
+/// Source, the leaked CS:GO build's
+/// <c>game/shared/cstrike15/weapon_basecsgrenade.cpp</c>
+/// (<c>CBaseCSGrenade::ThrowGrenade</c>; mirrored in
+/// docs/evidence/weapon_basecsgrenade.cpp):
 /// <code>
-/// float flVel = (90 - angThrow.x) * 6;
-/// if (flVel > 750) flVel = 750;
-/// Vector vecThrow = vForward * flVel + pPlayer->GetAbsVelocity();
+/// float flVel = clamp((kBaseVelocity * 0.9f), 15, 750);   // L586
+/// ...
+/// Vector vecThrow = vForward * flVel + (pPlayer->GetAbsVelocity() * 1.25);  // L614
 /// </code>
-/// Note the thrower's velocity is added unscaled there. CS2 applies a documented
-/// 1.25x inheritance factor instead, which is why <see cref="PhysicsParameters.VelocityInheritance"/>
-/// exists; set it to 1.0 to reproduce the CS:GO formula exactly.
+/// The 1.25x thrower-velocity inheritance is already in that line - it is not a
+/// CS2-only addition, so <see cref="PhysicsParameters.VelocityInheritance"/>
+/// documents the same constant for both games. telemetry-002 row 0 measured a
+/// stationary-thrower launch speed of 678.63 u/s against the 675 full-throw
+/// constant, independently confirming the inheritance term is live in CS2.
 ///
 /// The CS2 build replaces the continuous <c>(90 - pitch) * 6</c> ramp with three
 /// discrete speeds (202.5 / 438.75 / 675 u/s) and applies a +10 degree upward
@@ -53,29 +57,75 @@ public static class ThrowVelocityCalculator
     private static readonly Vec3 Up = new(0f, 0f, 1f);
 
     /// <summary>
-    /// Applies the CS:GO +10 degree up-bias to a unit aim vector. The original
-    /// code remaps <c>angThrow.x</c> into <c>[-10, +10]</c> before building the
-    /// basis vectors, which is a pitch offset rather than a speed change.
+    /// Applies the engine's pitch-dependent up-bias to a unit aim vector.
+    /// CS:GO weapon_basecsgrenade.cpp ThrowGrenade:
+    /// <code>
+    /// angThrow[PITCH] -= 10.0f * (90.0f - fabsf(angThrow[PITCH])) / 90.0f;
+    /// </code>
+    /// Level aim gets the full 10 degrees; the boost lerps to zero at the
+    /// +/-90 degree extremes. A constant rotation over-rotates every oblique
+    /// throw, which the 1014 steep calibration sample exposed.
     /// </summary>
     public static Vec3 ApplyAimBias(Vec3 forward, PhysicsParameters parameters)
     {
+        Vec3 unit = forward.Normalized();
         float bias = parameters.AimBiasDegrees.Value;
         if (Math.Abs(bias) < 1e-4f)
         {
-            return forward.Normalized();
+            return unit;
         }
 
-        // Rotate about the right vector (forward x up). A positive bias raises
-        // the throw for a level aim.
-        Vec3 right = Vec3.Cross(forward, Up);
+        float aimPitch = MathF.Asin(Math.Clamp(unit.Z, -1f, 1f)) * 180f / MathF.PI;
+        float effective = bias * ((90f - MathF.Abs(aimPitch)) / 90f);
+        if (MathF.Abs(effective) < 1e-4f)
+        {
+            // Straight up/down: the engine formula yields zero bias here too.
+            return unit;
+        }
+
+        // Rotate about the right vector (forward x up): a right-hand rotation
+        // about it tilts forward upward.
+        Vec3 right = Vec3.Cross(unit, Up);
         if (right.LengthSquared <= 1e-8f)
         {
-            // Looking straight up or down degenerates the cross product, so fall
-            // back to the world X axis and accept the tiny in-plane error.
-            right = new Vec3(1f, 0f, 0f);
+            return unit;
         }
 
-        return RotateAboutAxis(forward.Normalized(), right.Normalized(), -bias).Normalized();
+        return RotateAboutAxis(unit, right.Normalized(), effective).Normalized();
+    }
+
+    /// <summary>
+    /// Exact inverse of <see cref="ApplyAimBias"/>: recovers the unit aim vector whose
+    /// biased release direction is <paramref name="biasedForward"/>. Working in pitch
+    /// space keeps the inversion closed form. With the contract convention (positive
+    /// looks up) the biased release pitch is <c>e(a) = a + b*(90-|a|)/90</c>, so for
+    /// <c>e >= b</c> the aim pitch is <c>(e-b)*90/(90-b)</c> and otherwise
+    /// <c>(e-b)*90/(90+b)</c>; the yaw is untouched because the rotation axis stays
+    /// horizontal. Round trip verified over [-89, 89] degrees to 1.4e-14 degrees.
+    /// </summary>
+    public static Vec3 UndoAimBias(Vec3 biasedForward, PhysicsParameters parameters)
+    {
+        Vec3 v = biasedForward.Normalized();
+        float bias = parameters.AimBiasDegrees.Value;
+        if (Math.Abs(bias) < 1e-4f)
+        {
+            return v;
+        }
+
+        float physicalPitch = MathF.Asin(Math.Clamp(v.Z, -1f, 1f)) * 180f / MathF.PI;
+        float delta = physicalPitch - bias;
+        float aimPitch = delta >= 0f
+            ? delta * 90f / (90f - bias)
+            : delta * 90f / (90f + bias);
+        aimPitch = Math.Clamp(aimPitch, -90f, 90f);
+
+        float yaw = MathF.Atan2(v.Y, v.X);
+        float aimRadians = aimPitch * MathF.PI / 180f;
+        float cosAim = MathF.Cos(aimRadians);
+        return new Vec3(
+            cosAim * MathF.Cos(yaw),
+            cosAim * MathF.Sin(yaw),
+            MathF.Sin(aimRadians)).Normalized();
     }
 
     /// <summary>Rodrigues rotation of <paramref name="v"/> about unit <paramref name="axis"/>.</summary>
