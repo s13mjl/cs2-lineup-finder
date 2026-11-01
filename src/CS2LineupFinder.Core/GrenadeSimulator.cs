@@ -114,6 +114,17 @@ public sealed partial class GrenadeSimulator : ITrajectorySimulator
         out SimulationDiagnostics diagnostics)
         => SimulateCore(parameters, world, out diagnostics);
 
+    /// <inheritdoc />
+    public Vec3 DeriveCarriedVelocity(Vec3 launchVelocity, Vec3 aimForward, ThrowButton button)
+    {
+        Vec3 biased = ThrowVelocityCalculator.ApplyAimBias(aimForward, _parameters);
+        float speed = ThrowVelocityCalculator.LaunchSpeed(button, _parameters);
+        float inheritance = _parameters.VelocityInheritance.Value;
+        return inheritance <= 1e-6f
+            ? Vec3.Zero
+            : (launchVelocity - (biased * speed)) / inheritance;
+    }
+
     private TrajectoryResult SimulateCore(ThrowParams parameters, IWorldGeometry world, out SimulationDiagnostics diagnostics)
     {
         ArgumentNullException.ThrowIfNull(parameters);

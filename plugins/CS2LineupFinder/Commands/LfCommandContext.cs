@@ -153,18 +153,14 @@ public sealed class LfCommandContext
             return;
         }
 
-        // A jump throw marked during a run-up must keep the marked horizontal
-        // velocity: the player is standing when the search runs, so the live
-        // pawn has none, while the throw will carry the run-up. The jump
-        // impulse itself is already in origin.Velocity's Z from GetThrowOrigin.
-        if (mode == ThrowMode.Jump && session.ThrowVelocity.Length2D > 1f)
-        {
-            Vec3 marked = session.ThrowVelocity;
-            origin = origin with
-            {
-                Velocity = new Vec3(marked.X, marked.Y, origin.Velocity.Z),
-            };
-        }
+        origin = ThrowOriginRules.ForSearch(
+            origin,
+            session.ThrowVelocity,
+            mode,
+            session.MeasuredJumpCarryZ,
+            (float)Config.JumpCarryVelocity,
+            session.MeasuredJumpReleaseRise,
+            (float)Config.JumpReleaseRise);
 
         session.ThrowPoint = origin.Feet;
         session.EyePoint = origin.Eyes;

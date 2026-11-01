@@ -82,6 +82,9 @@ public sealed class StubTrajectorySimulator : ITrajectorySimulator
     }
 
     /// <inheritdoc />
+    /// <inheritdoc />
+    public Vec3 DeriveCarriedVelocity(Vec3 launchVelocity, Vec3 aimForward, ThrowButton button) => Vec3.Zero;
+
     public TrajectoryResult SimulateWithDiagnostics(ThrowParams parameters, IWorldGeometry world, out SimulationDiagnostics diagnostics)
     {
         var result = Simulate(parameters, world);

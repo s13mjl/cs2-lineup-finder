@@ -82,7 +82,7 @@ public static class TraceMaskAudit
                 else if (bounceMissExamples.Count < 4)
                 {
                     bounceMissExamples.Add(string.Create(CultureInfo.InvariantCulture,
-                        $"row {i}: engine bounced (dv {deltaV.X:0.#},{deltaV.Y:0.#},{deltaV.Z:0.#}) but masked sweep from ({from.X:0.##},{from.Y:0.##},{from.Z:0.##}) to ({to.X:0.##},{to.Y:0.##},{to.Z:0.##}) found nothing"));
+                        $"row {i}: engine bounced (dv {deltaV.X:0.#},{deltaV.Y:0.#},{deltaV.Z:0.#}) but masked sweep from ({from.X:0.##},{from.Y:0.##},{from.Z:0.##}) to ({to.X:0.##},{to.Y:0.##},{to.Z:0.##}) found nothing; surface: {ExtractContents(probe.DescribeTrace(from, to, 2f))}"));
                 }
             }
             else

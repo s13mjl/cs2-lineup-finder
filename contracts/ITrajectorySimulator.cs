@@ -213,6 +213,21 @@ public interface ITrajectorySimulator
     TrajectoryResult Simulate(ThrowParams parameters, IWorldGeometry world);
 
     /// <summary>
+    /// Recovers the thrower velocity the engine folded into a real launch,
+    /// given the projectile's launch velocity, the thrower's aim direction and
+    /// the button used. The engine adds <c>playerVelocity * inheritance</c> to
+    /// <c>biasedForward * speed</c>; inverting that measures a jump-throw carry
+    /// from the grenade itself instead of from the pawn a few ticks later,
+    /// when the jump velocity has already decayed and the reading varies with
+    /// timing.
+    /// </summary>
+    /// <param name="launchVelocity">The projectile's launch velocity.</param>
+    /// <param name="aimForward">Unit aim direction from the thrower's view.</param>
+    /// <param name="button">Throw button combination the throw used.</param>
+    /// <returns>The recovered player velocity, in u/s.</returns>
+    Vec3 DeriveCarriedVelocity(Vec3 launchVelocity, Vec3 aimForward, ThrowButton button);
+
+    /// <summary>
     /// Simulates and additionally reports apex, range and path length, which is
     /// what the calibration tool fits against.
     /// </summary>

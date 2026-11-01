@@ -153,6 +153,8 @@ public sealed class LaunchCaptureReplayTests
             return new TrajectoryResult(new List<TrajectoryPoint>(), impact, false);
         }
 
+        public Vec3 DeriveCarriedVelocity(Vec3 launchVelocity, Vec3 aimForward, ThrowButton button) => Vec3.Zero;
+
         public TrajectoryResult SimulateWithDiagnostics(ThrowParams parameters, IWorldGeometry world, out SimulationDiagnostics diagnostics)
         {
             diagnostics = new SimulationDiagnostics(0f, 0f, 0f, 0, 0);

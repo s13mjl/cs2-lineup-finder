@@ -107,6 +107,15 @@ public sealed partial class CommandService
                 ElevationStepDegrees = elevationStep,
             };
             LastBuiltRequest = request;
+            _messages.Log(string.Create(
+                CultureInfo.InvariantCulture,
+                $"CS2LineupFinder: search request: map={request.MapName} mode={request.ThrowMode} " +
+                $"feet=({request.Origin.Feet.X:0},{request.Origin.Feet.Y:0},{request.Origin.Feet.Z:0}) " +
+                $"eyes=({request.Origin.Eyes.X:0},{request.Origin.Eyes.Y:0},{request.Origin.Eyes.Z:0}) " +
+                $"carried=({request.Origin.Velocity.X:0.0},{request.Origin.Velocity.Y:0.0},{request.Origin.Velocity.Z:0.0}) " +
+                $"zone=({request.TargetZone.Center.X:0},{request.TargetZone.Center.Y:0},{request.TargetZone.Center.Z:0}) " +
+                $"radius={request.TargetZone.Radius:0.#} elev={request.MinElevationDegrees:0.#}..{request.MaxElevationDegrees:0.#} " +
+                $"candidates={request.MaxCandidates}"));
 
             var session = Sessions.GetOrCreate(playerSlot);
             var effectiveSeconds = solveSeconds is { } secs && secs > 0d ? secs : (double?)null;

@@ -70,6 +70,29 @@ public sealed class PlayerSession
     /// </summary>
     public double? SolveSecondsOverride { get; set; }
 
+    /// <summary>
+    /// Vertical speed the player's pawn actually carried at their last jump
+    /// throw, in u/s, measured when the grenade spawned and kept only after
+    /// the pawn was seen leaving the ground - a stutter that eats the jump
+    /// measures zero and must not poison the estimate. The solver scales it
+    /// by <c>VelocityInheritance</c> like any player velocity. The fixed +300
+    /// jump impulse only matches a throw released on the jump's first tick; a
+    /// manual jump throw carries whatever vertical speed the pawn had at
+    /// release, and assuming the full impulse made every simulated jump line-up
+    /// fly hundreds of units past the real one. Null until the player has
+    /// confirmed a jump throw this session.
+    /// </summary>
+    public float? MeasuredJumpCarryZ { get; set; }
+
+    /// <summary>
+    /// How far above the standing feet the player's pawn was when their last
+    /// jump throw spawned, in units, confirmed by the airborne check. The
+    /// search starts jump trajectories from this height: a manual jump throw is
+    /// released ~40 u up, and simulating from the ground made the grenade fly
+    /// under obstacles the real throw clears. Null until a confirmed throw.
+    /// </summary>
+    public float? MeasuredJumpReleaseRise { get; set; }
+
     /// <summary>Returns the currently selected solution, or <see langword="null"/>.</summary>
     /// <returns>The selected solution.</returns>
     public LineupSolution? SelectedSolution

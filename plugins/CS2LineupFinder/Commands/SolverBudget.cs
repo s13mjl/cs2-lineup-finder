@@ -45,7 +45,7 @@ public static class SolverBudget
     /// the grid ceiling must grow with the request or the extra budget would only
     /// ever feed refinement misses.
     /// </summary>
-    public const int GridCeiling = 16_384;
+    public const int GridCeiling = 65_536;
 
     /// <summary>
     /// Grid steps for a search. Without an explicit duration this is the

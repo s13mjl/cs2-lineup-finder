@@ -30,6 +30,25 @@ public sealed class FindBudgetTests
     }
 
     [Fact]
+    public void CandidateBudget_ForFiveMinutes_UsesTheRaisedCeiling()
+    {
+        Assert.Equal(63_000, SolverBudget.CandidateBudget(300.0, 4096));
+        Assert.True(SolverBudget.CandidateBudget(300.0, 4096) <= 100_000);
+    }
+
+    [Fact]
+    public void DensifiedSteps_ForFiveMinutes_FitsTheRaisedGridCeiling()
+    {
+        int budget = SolverBudget.CandidateBudget(300.0, 4096);
+        var (yaw, elevation) = SolverBudget.DensifiedSteps(300.0, budget, 1.0, 1.5, 30.0, -15.0, 89.0);
+
+        Assert.True(yaw >= 0.25 && elevation >= 0.25, $"steps {yaw:0.###}/{elevation:0.###} below the clamp");
+        var cells = ((2 * (int)Math.Floor(30.0 / yaw)) + 1)
+            * ((int)Math.Floor((89.0 + 15.0) / elevation) + 1);
+        Assert.True(cells <= 65_536, $"grid {cells} exceeds the raised ceiling");
+    }
+
+    [Fact]
     public void DensifiedSteps_WithoutSeconds_KeepsTheConfiguredGrid()
     {
         var (yaw, elevation) = SolverBudget.DensifiedSteps(null, 64, 1.0, 1.5, 30.0, -15.0, 85.0);

@@ -71,7 +71,7 @@ public static class Phrases
         /* 56 */ "View snapped to yaw {0:0.0} pitch {1:0.0}.",
         /* 57 */ "The collision-sweep budget ran out, so the search was stopped instead of reporting garbage. Raise solver.maxTracesPerSolve in config.toml.",
         /* 58 */ "Calibration: real landing was {0:0.0}u from the prediction (#{1} saved).",
-         /* 59 */ "Usage: css_lf_find [seconds] - 1 to 120, e.g. css_lf_find 60. Applies to the next search only.",
+         /* 59 */ "Usage: css_lf_find [seconds] - 1 to 300, e.g. css_lf_find 60. Applies to the next search only.",
         /* 60 */ "Replay #{0}: predicted error {1:0.0}u (predicted {2}, actual {3}).",
         /* 61 */ "Replay done: {0} sample(s), mean error {1:0.0}u.",
         /* 62 */ "[lf-replay] Core simulator not loaded; telemetry replay unavailable.",
@@ -82,6 +82,8 @@ public static class Phrases
         /* 67 */ "Searching with a {0:0.##}s budget; progress prints every {1} candidates.",
         /* 68 */ "The search budget expired after {0:0.0}s; the line-ups found so far follow.",
         /* 69 */ "Note: aims next to #{0} land up to {1:0}u apart; test this one in game (ledge or bounce).",
+        /* 70 */ "Jump throw measured: carry {0:0} u/s, release height +{1:0}u; later jump searches will predict with these.",
+        /* 71 */ "No jump detected on that throw, so the jump-carry estimate was not updated.",
     };
 
     private static readonly string[] Zh =
@@ -145,7 +147,7 @@ public static class Phrases
         /* 56 */ "视角已对准：水平 {0:0.0}，俯仰 {1:0.0}。",
         /* 57 */ "碰撞检测预算耗尽，搜索已停止以避免给出错误结果。可在 config.toml 中调高 solver.maxTracesPerSolve。",
         /* 58 */ "标定：真实落点与预测偏差 {0:0.0}u（已记录 #{1} 个样本）。",
-         /* 59 */ "用法：css_lf_find [秒数] - 1 到 120，例如 css_lf_find 60。仅对下一次搜索生效。",
+         /* 59 */ "用法：css_lf_find [秒数] - 1 到 300，例如 css_lf_find 60。仅对下一次搜索生效。",
         /* 60 */ "回放样本 #{0}：预测偏差 {1:0.0}u（预测 {2}，真实 {3}）。",
         /* 61 */ "回放完成：{0} 个样本，平均偏差 {1:0.0}u。",
         /* 62 */ "[lf-replay] Core 模拟器未加载，无法进行遥测回放。",
@@ -156,6 +158,8 @@ public static class Phrases
         /* 67 */ "本次搜索预算 {0:0.##} 秒；每 {1} 个候选播报一次进度。",
         /* 68 */ "搜索预算在 {0:0.0} 秒时到期，以下是已找到的结果。",
         /* 69 */ "注意：#{0} 号瞄点的邻近角度落点最多相差 {1:0}u（可能涉及台沿或多次弹跳），建议进服实测确认。",
+        /* 70 */ "跳投已实测：继承速度 {0:0} u/s，出手高度 +{1:0}u，之后的 jump 搜索将使用这组值。",
+        /* 71 */ "该次投掷未检测到起跳，跳跃继承速度未更新。",
     };
 
     /// <summary>Index of the message wrapped with the plugin prefix.</summary>
@@ -368,6 +372,12 @@ public static class Phrases
 
         /// <summary>A reported aim sits next to a branchy landing.</summary>
         public const int UnstableAim = 69;
+
+        /// <summary>A jump throw's carry was measured and stored.</summary>
+        public const int JumpCarryMeasured = 70;
+
+        /// <summary>A throw expected to be a jump never left the ground.</summary>
+        public const int JumpCarryNotConfirmed = 71;
     }
 
     /// <summary>Formats a message for the configured language.</summary>

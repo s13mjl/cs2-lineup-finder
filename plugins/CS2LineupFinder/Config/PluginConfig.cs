@@ -87,6 +87,14 @@ public sealed class PluginConfig
     public bool VerboseMenu { get; private set; }
 
     /// <summary>
+    /// Whether the plugin replays every recorded telemetry capture and
+    /// calibration sample on the game thread 25 s after a map start. Developer
+    /// diagnostic: the replay hitches the server for a few hundred ms, so it
+    /// is off by default and only the on-demand replay command runs it.
+    /// </summary>
+    public bool StartupDiagnostics { get; private set; }
+
+    /// <summary>
     /// When true, the plugin forwards chat aliases (<c>!lf_zone</c>) to its console
     /// commands itself via the <c>player_chat</c> game event. CounterStrikeSharp
     /// builds this bridge in from the same chat trigger, but the trigger's engine
@@ -112,7 +120,7 @@ public sealed class PluginConfig
     public double MinElevationDegrees { get; private set; } = -15.0;
 
     /// <summary>Highest release elevation the solver grid may try, degrees above the horizon.</summary>
-    public double MaxElevationDegrees { get; private set; } = 85.0;
+    public double MaxElevationDegrees { get; private set; } = 89.0;
 
     /// <summary>Number of misses refined around each of the best seeds after the coarse sweep.</summary>
     public int RefineSeeds { get; private set; } = 4;
@@ -150,6 +158,23 @@ public sealed class PluginConfig
     /// </summary>
     public double PhysicsVelocityInheritance { get; private set; } = 1.25;
 
+    /// <summary>
+    /// Vertical pawn speed a jump throw inherits at release, in u/s, before any
+    /// live measurement. Measured 215 on this server with CS2 manual jump
+    /// throws; the fixed +300 game impulse is only right for a throw released
+    /// on the jump's first tick.
+    /// </summary>
+    public double JumpCarryVelocity { get; private set; } = 215.0;
+
+    /// <summary>
+    /// How far above the standing feet the player releases a jump throw, in
+    /// units. A CS2 manual jump throw is released a few ticks into the jump,
+    /// when the pawn is already ~40 u up; simulating from the standing eye
+    /// point puts every jump trajectory that much lower and clips obstacles a
+    /// real throw clears. Refined from live throws when confirmed.
+    /// </summary>
+    public double JumpReleaseRise { get; private set; } = 40.0;
+
     /// <summary>Upward aim bias the engine applies to every throw, degrees.</summary>
     public double PhysicsAimBiasDegrees { get; private set; } = 10.0;
 
@@ -179,7 +204,7 @@ public sealed class PluginConfig
             document = TomlDocument.Load(path);
         }
 
-        config.SolveTimeoutSeconds = ClampPositive(document.GetDouble("solver.timeoutSeconds", config.SolveTimeoutSeconds), 0.1, 60.0);
+        config.SolveTimeoutSeconds = ClampPositive(document.GetDouble("solver.timeoutSeconds", config.SolveTimeoutSeconds), 0.1, 300.0);
         config.MaxResults = (int)ClampPositive(document.GetInt("solver.maxResults", config.MaxResults), 1, 50);
        config.MaxCandidates = (int)ClampPositive(document.GetInt("solver.maxCandidates", config.MaxCandidates), 1, 4096);
         config.YawStepDegrees = ClampPositive(document.GetDouble("solver.yawStepDegrees", config.YawStepDegrees), 0.25, 15.0);
@@ -200,6 +225,7 @@ public sealed class PluginConfig
         config.Language = NormalizeLanguage(document.GetString("general.language", config.Language));
         config.AutoAim = document.GetBool("general.autoAim", config.AutoAim);
         config.VerboseMenu = document.GetBool("general.verboseMenu", config.VerboseMenu);
+        config.StartupDiagnostics = document.GetBool("diagnostics.startupReplay", config.StartupDiagnostics);
         config.ChatBridge = document.GetBool("general.chatBridge", config.ChatBridge);
         config.SvCheats = document.GetBool("general.svCheats", config.SvCheats);
         config.YawSpanDegrees = ClampPositive(document.GetDouble("solver.yawSpanDegrees", config.YawSpanDegrees), 5.0, 180.0);
@@ -215,6 +241,8 @@ public sealed class PluginConfig
         config.PhysicsGroundRollFrictionRate = ClampPositive(document.GetDouble("physics.groundRollFrictionRate", config.PhysicsGroundRollFrictionRate), 0.0, 16.0);
         config.PhysicsFullThrowSpeed = ClampPositive(document.GetDouble("physics.fullThrowSpeed", config.PhysicsFullThrowSpeed), 550.0, 800.0);
         config.PhysicsVelocityInheritance = ClampPositive(document.GetDouble("physics.velocityInheritance", config.PhysicsVelocityInheritance), 0.0, 3.0);
+        config.JumpCarryVelocity = ClampPositive(document.GetDouble("solver.jumpCarryVelocity", config.JumpCarryVelocity), 0.0, 400.0);
+        config.JumpReleaseRise = ClampPositive(document.GetDouble("solver.jumpReleaseRise", config.JumpReleaseRise), 0.0, 120.0);
         config.PhysicsAimBiasDegrees = document.GetDouble("physics.aimBiasDegrees", config.PhysicsAimBiasDegrees);
         config.UnknownKeys = FindUnknownKeys(document);
         return config;
@@ -265,6 +293,9 @@ public sealed class PluginConfig
             "physics.fullThrowSpeed",
             "physics.velocityInheritance",
             "physics.aimBiasDegrees",
+            "solver.jumpCarryVelocity",
+            "solver.jumpReleaseRise",
+            "diagnostics.startupReplay",
     };
 
     private static IReadOnlyList<string> FindUnknownKeys(TomlDocument document)

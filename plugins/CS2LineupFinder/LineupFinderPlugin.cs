@@ -69,6 +69,15 @@ namespace CS2LineupFinder.Plugin;
     private int _lastEngineTick = -1;
     private CHandle<CBaseEntity>? _telemetryEntity;
 
+    // Pending jump-carry measurement: the carry derived from a smoke's launch
+    // state, confirmed six ticks later once the player is visibly airborne.
+    private uint _carryMeasuredHandle;
+    private int _launchCarryProbeSlot = -1;
+    private float _launchCarryProbeZ;
+    private float _launchCarryProbePawnZ;
+    private float _launchCarryProbeRise = float.NaN;
+    private int _launchCarryProbeTicksLeft;
+
     /// <inheritdoc />
     public override string ModuleName => "CS2 Line-up Finder";
 
@@ -336,6 +345,11 @@ namespace CS2LineupFinder.Plugin;
     /// </summary>
     private void TickTelemetry(int engineTick)
     {
+        // Enumerate once per tick: the launch-carry scan must see every fresh
+        // smoke even while another capture is still tracking its own grenade.
+        var spawned = Utilities.FindAllEntitiesByDesignerName<CBaseEntity>("smokegrenade_projectile");
+        ScanLaunchCarry(spawned);
+
         if (_telemetry is not null)
         {
             var entity = _telemetryEntity?.Get()?.As<CBaseEntity>();
@@ -366,7 +380,6 @@ namespace CS2LineupFinder.Plugin;
         }
 
         // Idle: look for a freshly thrown smoke projectile to attach to.
-        var spawned = Utilities.FindAllEntitiesByDesignerName<CBaseEntity>("smokegrenade_projectile");
         foreach (var candidate in spawned)
         {
             var velocity = candidate.AbsVelocity;
@@ -406,6 +419,220 @@ namespace CS2LineupFinder.Plugin;
         }
     }
  
+    /// <summary>
+    /// Measures the engine's own jump-throw inheritance from a freshly spawned
+    /// smoke. The carried velocity is recovered from the projectile's launch
+    /// velocity and the thrower's view, so the reading does not depend on when
+    /// the scan happens. It runs every tick, independent of the telemetry
+    /// capture: a second smoke thrown while the first was still flying used to
+    /// be sampled only after the first landed, with the jump velocity already
+    /// decayed, and the values then varied by tens of u/s for identical throws.
+    /// </summary>
+    /// <param name="spawned">Live smoke projectiles this tick.</param>
+    private void ScanLaunchCarry(IEnumerable<CBaseEntity> spawned)
+    {
+        var services = _services;
+        if (services is null || services.Simulator.UsingStub)
+        {
+            return;
+        }
+
+        foreach (var candidate in spawned)
+        {
+            if (!candidate.IsValid)
+            {
+                continue;
+            }
+
+            uint handle = candidate.EntityHandle.Raw;
+            if (handle == _carryMeasuredHandle)
+            {
+                continue;
+            }
+
+            var velocity = candidate.AbsVelocity;
+            var origin = candidate.AbsOrigin;
+            if (velocity is null || origin is null
+                || ((velocity.X * velocity.X) + (velocity.Y * velocity.Y) + (velocity.Z * velocity.Z)) <= 1f)
+            {
+                continue;
+            }
+
+            // Measure each projectile once, on the first tick it is visible.
+            _carryMeasuredHandle = handle;
+            BeginLaunchCarryProbe(ToContract(origin), ToContract(velocity));
+            return;
+        }
+    }
+
+    /// <summary>
+    /// Derives the carry from the launch state as a CANDIDATE. It is only kept
+    /// after the pawn has visibly left the ground a few ticks later: a stutter
+    /// can cost the player the jump, and a throw without the jump must not
+    /// update the session's carry estimate.
+    /// </summary>
+    /// <param name="launchOrigin">Where the projectile spawned.</param>
+    /// <param name="launchVelocity">The projectile's launch velocity.</param>
+    private void BeginLaunchCarryProbe(Vec3 launchOrigin, Vec3 launchVelocity)
+    {
+        var services = _services;
+        if (services is null)
+        {
+            return;
+        }
+
+        int bestSlot = -1;
+        float bestDistanceSq = 96f * 96f;
+        float bestPawnZ = 0f;
+        Vec3 bestAim = Vec3.Zero;
+        bool aimRead = false;
+
+        for (var slot = 0; slot < 64; slot++)
+        {
+            var pawn = EnginePlayers.Pawn(slot);
+            if (pawn is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                Vec3 pawnOrigin = ToContract(pawn.AbsOrigin!);
+                float dx = pawnOrigin.X - launchOrigin.X;
+                float dy = pawnOrigin.Y - launchOrigin.Y;
+                float dz = pawnOrigin.Z - launchOrigin.Z;
+                float distanceSq = (dx * dx) + (dy * dy) + (dz * dz);
+                if (distanceSq >= bestDistanceSq)
+                {
+                    continue;
+                }
+
+                var view = pawn.EyeAngles;
+                bestDistanceSq = distanceSq;
+                bestSlot = slot;
+                bestPawnZ = pawnOrigin.Z;
+                bestAim = CommandParser.DirectionFromPlayerAngles(view.Y, view.X);
+                aimRead = true;
+            }
+            catch (Exception)
+            {
+                // A pawn disappearing mid-scan must not stop the capture.
+            }
+        }
+
+        if (bestSlot < 0 || !aimRead)
+        {
+            return;
+        }
+
+        var session = services.Sessions.GetOrCreate(bestSlot);
+        if (session.ThrowMode != ThrowMode.Jump)
+        {
+            return;
+        }
+
+        Vec3 carried;
+        try
+        {
+            carried = services.Simulator.Simulator.DeriveCarriedVelocity(
+                launchVelocity,
+                bestAim,
+                session.Button);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning("CS2LineupFinder: launch carry derivation failed: {Message}", ex.Message);
+            return;
+        }
+
+        _launchCarryProbeSlot = bestSlot;
+        _launchCarryProbeZ = carried.Z;
+        _launchCarryProbePawnZ = bestPawnZ;
+        _launchCarryProbeRise = session.ThrowPoint is { } markedFeet
+            ? bestPawnZ - markedFeet.Z
+            : float.NaN;
+        _launchCarryProbeTicksLeft = 6;
+        Logger.LogInformation(
+            "CS2LineupFinder: launch carry candidate: slot={Slot} launch=({VX:0.0},{VY:0.0},{VZ:0.0}) carry=({CX:0.0},{CY:0.0},{CZ:0.0}) (confirming in 6 ticks)",
+            bestSlot,
+            launchVelocity.X,
+            launchVelocity.Y,
+            launchVelocity.Z,
+            carried.X,
+            carried.Y,
+            carried.Z);
+    }
+
+    /// <summary>
+    /// Settles a pending jump-carry measurement: keeps it only if the pawn has
+    /// risen off the ground, which a real jump always does within six ticks.
+    /// </summary>
+    private void ResolveLaunchCarryProbe()
+    {
+        if (_launchCarryProbeSlot < 0)
+        {
+            return;
+        }
+
+        if (--_launchCarryProbeTicksLeft > 0)
+        {
+            return;
+        }
+
+        int slot = _launchCarryProbeSlot;
+        _launchCarryProbeSlot = -1;
+
+        var services = _services;
+        if (services is null)
+        {
+            return;
+        }
+
+        float pawnZ = float.NaN;
+        try
+        {
+            var pawn = EnginePlayers.Pawn(slot);
+            if (pawn is not null)
+            {
+                pawnZ = ToContract(pawn.AbsOrigin!).Z;
+            }
+        }
+        catch (Exception)
+        {
+            pawnZ = float.NaN;
+        }
+
+        if (!ThrowOriginRules.JumpCarryConfirmed(_launchCarryProbePawnZ, pawnZ))
+        {
+            Logger.LogInformation(
+                "CS2LineupFinder: launch carry discarded: no jump detected (spawn z {SpawnZ:0.0} -> {PawnZ:0.0})",
+                _launchCarryProbePawnZ,
+                pawnZ);
+            services.Commands.Reply(slot, Phrases.Id.JumpCarryNotConfirmed);
+            return;
+        }
+
+        var session = services.Sessions.GetOrCreate(slot);
+        session.MeasuredJumpCarryZ = _launchCarryProbeZ;
+        float releaseRise = float.IsNaN(_launchCarryProbeRise) ? 0f : _launchCarryProbeRise;
+        if (releaseRise >= 0f && releaseRise <= 120f)
+        {
+            session.MeasuredJumpReleaseRise = releaseRise;
+        }
+        else
+        {
+            releaseRise = 0f;
+        }
+
+        Logger.LogInformation(
+            "CS2LineupFinder: jump throw measured: slot={Slot} carry={Carry:0.0} u/s releaseRise={ReleaseRise:0.0}u (pawn rose {Rise:0.0}u)",
+            slot,
+            _launchCarryProbeZ,
+            releaseRise,
+            pawnZ - _launchCarryProbePawnZ);
+        services.Commands.Reply(slot, Phrases.Id.JumpCarryMeasured, _launchCarryProbeZ, releaseRise);
+    }
+
     /// <summary>Reads the catalogue for the new map and resets every player's session.</summary>
     /// <param name="mapName">Map that just started.</param>
     [ListenerHandler<Listeners.OnMapStart>]
@@ -439,6 +666,8 @@ namespace CS2LineupFinder.Plugin;
                 session.MapName = mapName;
             });
 
+            _carryMeasuredHandle = 0;
+
             services.Beams.Clear();
 
             foreach (var problem in catalog.Problems)
@@ -460,13 +689,22 @@ namespace CS2LineupFinder.Plugin;
             // so exactly one live tick loop exists per map either way.
             AddTickTimer(1, OnTick, TimerFlags.REPEAT | TimerFlags.STOP_ON_MAPCHANGE);
 
-            // Calibration replay on the live map: once the engine has finished
-            // spawning, replay every recorded landing on this map through the
-            // current physics so the log always carries a fresh fidelity check.
+            // Forensic replay of every recorded sample on the live map. It is a
+            // developer diagnostic that runs synchronously on the game thread
+            // and hitches the server for a few hundred ms, so it only runs when
+            // diagnostics.startupReplay is enabled. The on-demand replay
+            // command covers the same ground without surprising a player who
+            // happens to throw while it is running.
             // 64 Hz: one tick is 1/64 s. (The 0.064 divisor previously used here
             // made every "20 s" delay fire after ~5 s of wall time.)
-            _startupReplayDelayTicks = (int)(25f * 64f);
-            _pawnProbeDelayTicks = (int)(25f * 64f);
+            bool startupDiagnostics = Config.StartupDiagnostics;
+            Logger.LogInformation(
+                "CS2LineupFinder: startup diagnostics={Enabled} jumpCarry={Carry:0.#} jumpRise={Rise:0.#}",
+                startupDiagnostics,
+                Config.JumpCarryVelocity,
+                Config.JumpReleaseRise);
+            _startupReplayDelayTicks = startupDiagnostics ? (int)(25f * 64f) : 0;
+            _pawnProbeDelayTicks = startupDiagnostics ? (int)(25f * 64f) : 0;
         }
         catch (Exception ex)
         {
@@ -690,7 +928,7 @@ namespace CS2LineupFinder.Plugin;
             {
                 if (!double.TryParse(arg, System.Globalization.NumberStyles.Float,
                         System.Globalization.CultureInfo.InvariantCulture, out var parsed) ||
-                    parsed <= 0d || parsed > 120d)
+                    parsed <= 0d || parsed > 300d)
                 {
                    context.Service.Reply(context.PlayerSlot, Phrases.Id.SearchSecondsUsage);
                     return Task.CompletedTask;
@@ -1150,6 +1388,14 @@ namespace CS2LineupFinder.Plugin;
 
         var slot = player.Slot;
         RefreshThrowOriginForSearch(services, slot);
+        var session = services.Sessions.GetOrCreate(slot);
+        Logger.LogInformation(
+            "CS2LineupFinder: search pose: mode={Mode} carried=({X:0.0},{Y:0.0},{Z:0.0}) measuredJumpZ={Measured}",
+            session.ThrowMode,
+            session.ThrowVelocity.X,
+            session.ThrowVelocity.Y,
+            session.ThrowVelocity.Z,
+            session.MeasuredJumpCarryZ?.ToString("0.0") ?? "none");
         _ = RunGuardedAsync(
             slot,
             () => services.Commands.FindAsync(slot, services.World, services.Cancellations.TokenFor(slot)));
@@ -1168,11 +1414,21 @@ namespace CS2LineupFinder.Plugin;
             return;
         }
 
-        var origin = services.Movement.GetThrowOrigin(slot, session.ThrowMode);
+        var mode = session.ThrowMode;
+        var origin = services.Movement.GetThrowOrigin(slot, mode);
         if (origin is null)
         {
             return;
         }
+
+        origin = ThrowOriginRules.ForSearch(
+            origin,
+            session.ThrowVelocity,
+            mode,
+            session.MeasuredJumpCarryZ,
+            (float)services.Commands.Config.JumpCarryVelocity,
+            session.MeasuredJumpReleaseRise,
+            (float)services.Commands.Config.JumpReleaseRise);
 
         session.ThrowPoint = origin.Feet;
         session.EyePoint = origin.Eyes;
@@ -1245,6 +1501,7 @@ namespace CS2LineupFinder.Plugin;
             _services?.Visuals.Step();
             _services?.Dispatcher.Drain();
             TickTelemetry(engineTick);
+            ResolveLaunchCarryProbe();
 
             int delay = _startupReplayDelayTicks;
             if (delay > 0 && System.Threading.Interlocked.Decrement(ref _startupReplayDelayTicks) == 0)

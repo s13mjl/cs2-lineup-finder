@@ -183,6 +183,10 @@ internal sealed class StuckSimulator : ITrajectorySimulator
         => throw new NotSupportedException();
 
     /// <inheritdoc />
+    public Vec3 DeriveCarriedVelocity(Vec3 launchVelocity, Vec3 aimForward, ThrowButton button)
+        => throw new NotSupportedException();
+
+    /// <inheritdoc />
     public Task<SolverOutcome> SolveLineupAsync(
         LineupRequest request,
         ILineupSolver solver,

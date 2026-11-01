@@ -9,8 +9,9 @@
 # keys keep their built-in default, so trimming this file down is safe.
 
 [solver]
-# Wall clock budget for css_lf_find, in seconds. The plugin cancels the search
-# when the budget expires and reports a timeout instead of stalling the server.
+# Wall clock budget for css_lf_find, in seconds (0.1 to 300). The plugin cancels
+# the search when the budget expires and reports a timeout instead of stalling
+# the server. css_lf_find <seconds> overrides it for one search (1 to 300).
 timeoutSeconds = 30.0
 
 # How many solutions are printed in chat and stored per search.
@@ -33,8 +34,11 @@ yawSpanDegrees = 30.0
 # Release elevation window for the coarse grid, degrees above the horizon. The
 # vacuum solution needs the zone inside this window, so a target that only
 # reaches the zone after a bounce still has to sit between the two bounds.
+# 89 is the engine pitch limit and matters for jump drop-line-ups: CS2 manual
+# jump throws routinely aim near-vertical (~88 degrees), and the old 85 cap
+# made those targets unreachable for the solver.
 minElevationDegrees = -15.0
-maxElevationDegrees = 85.0
+maxElevationDegrees = 89.0
 
 # How many of the closest misses get a Nelder-Mead refinement after the coarse
 # sweep. More seeds find bounce line-ups further from the vacuum ranking's top
@@ -52,6 +56,20 @@ refineSeeds = 4
 # loop, never a legitimate search that simply needed more headroom. The wall
 # clock budget remains the real time limit.
 maxTracesPerSolve = 64000000
+
+# Vertical player velocity a jump throw inherits, in u/s. The engine folds
+# playerVelocity * physics.velocityInheritance into the launch; a CS2 manual
+# jump throw carries roughly 215 u/s of pawn vertical speed at release on this
+# server (measured repeatedly). The plugin refines the value from every
+# confirmed jump throw, and this entry is the starting value so the very first
+# find is already right.
+jumpCarryVelocity = 215.0
+
+# How far above the standing feet a jump throw is released, in units. A CS2
+# manual jump throw leaves the hand a few ticks into the jump, ~40 u up; the
+# solver must start the trajectory there or it flies under obstacles a real
+# throw clears. The plugin refines it from every confirmed jump throw.
+jumpReleaseRise = 40.0
 
 # Grenade constants the forward simulation runs with. CS2 values first, tune
 # only against calibration samples recorded with a real throw.
@@ -136,3 +154,12 @@ chatBridge = false
 # setang (the view snap behind auto-aim) is cheat-protected. When this is on, the
 # plugin enables sv_cheats on map start so the snap works on a practice server.
 svCheats = true
+
+[diagnostics]
+# Replay every recorded telemetry capture and calibration landing on the live
+# map 25 seconds after a map start (developer diagnostic). The replay runs on
+# the game thread and hitches the server for a few hundred ms; a player who
+# throws during it feels the stutter. Off by default - use the replay chat
+# command for an on-demand check instead, or turn this on for a calibration
+# session when the log should carry a fresh fidelity report.
+startupReplay = false

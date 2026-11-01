@@ -70,6 +70,8 @@ internal sealed class VacuumSimulatorStub : ITrajectorySimulator
         return new TrajectoryResult(path, impact, inZone);
     }
 
+    public Vec3 DeriveCarriedVelocity(Vec3 launchVelocity, Vec3 aimForward, ThrowButton button) => Vec3.Zero;
+
     public TrajectoryResult SimulateWithDiagnostics(
         ThrowParams parameters,
         IWorldGeometry world,

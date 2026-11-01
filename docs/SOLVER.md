@@ -379,7 +379,9 @@ strictly more search):
 - `CandidateBudget(seconds, configured)` = `max(seconds * 210/s, configured)` candidates, clamped to 100k.
 - `DensifiedSteps(...)` scales the configured grid steps so the coarse grid's cell count
   tracks that budget in both directions - a short budget coarsens the grid, a long budget
-  densifies it (bounded by `GridCeiling` = 16384 cells and the 0.25 degree config clamp). The cell
+  densifies it (bounded by `GridCeiling` = 65536 cells and the 0.25 degree config clamp; raised
+from 16384 when the wall clock cap went to 300 s, so a five-minute search really buys a denser
+grid). The cell
   arithmetic mirrors `LineupSolver.BuildCandidatesForLaunch` exactly, so the estimate here is
   the count the solver enumerates.
 - `LineupSolver`'s grid safety ceiling yields to an explicit candidate budget
